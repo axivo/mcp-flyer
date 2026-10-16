@@ -73,7 +73,7 @@ Canadian codes (`A9A 9A9`) and US ZIP codes (`99999`) are told apart by shape, n
 - Names are bilingual (`FRANÇAIS | ENGLISH`), `search` keeps the part for the `locale`
 - Many items carry no unit, the words around the price are in `pre_price_text` and `post_price_text` (`From`, `/lb`, `+TX`)
 - Items with an empty name and no price are skipped, named items with no price are real promotions and are kept
-- `perKg` (Canada) and `perLb` (US) are computed only from a printed price per kilogram, a printed price per 100 g, a unit right after the price (`/lb`, `Per Lb.`, `/100g`, `/kg`), or one pack size in the name or description for a flat price, a `/ea` or a `/SAC`. Approximate weights, `From` prices, two different weights and multi-buy prices (`2/`, `2 FOR`, `BUY 1 FOR`) give nothing
+- `unitPrice` and its `unit` (`kg` in Canada, `lb` in the US) are computed only from a printed price per kilogram, a printed price per 100 g, a unit right after the price (`/lb`, `Per Lb.`, `/100g`, `/kg`), or one pack size in the name or description for a flat price, a `/ea` or a `/SAC`. Approximate weights, `From` prices, two different weights, `X or Y` listings and multi-buy prices (`2/`, `2 FOR`, `BUY 1 FOR`) give nothing. `read` looks at the description first, the name only when there is no description
 - US flyers print pounds and ounces only, so the US answer is a price of a pound
 - The `cutout` picture is the product alone for most merchants, but some merchants upload a flyer-style picture for it
 - Pictures are served as `application/octet-stream` and checked by their first bytes, then returned as `image/jpeg` or `image/png`

@@ -86,7 +86,7 @@ Call `status` first at session start to get the state of the flyer services and 
    - Optional inputs:
      - `image` (string: `cutout` or `page`): Also return a picture, `cutout` is the product alone and `page` is the flyer page around it
      - `locale` (string: `en` or `fr`, default: `en`): Language of the links
-   - Returns: `{ brand, description, disclaimer, dollarsOff, flyerId, flyerLink, id, image, link, merchant, name, originalPrice, percentOff, perKg or perLb, postText, preText, price, saleStory, validFrom, validTo }`, plus the picture as image content when `image` is set
+   - Returns: `{ brand, description, disclaimer, dollarsOff, flyerId, flyerLink, id, image, link, merchant, name, originalPrice, percentOff, postText, preText, price, saleStory, unit, unitPrice, validFrom, validTo }`, plus the picture as image content when `image` is set
 
 3. `search`
    - Search the items on special for a postal or ZIP code
@@ -98,7 +98,7 @@ Call `status` first at session start to get the state of the flyer services and 
      - `locale` (string: `en` or `fr`, default: `en`): Language of names and links, `fr` applies to Canada only
      - `merchant` (string): Merchant names to keep, comma separated, matched as case-insensitive substrings
      - `sort` (string: `price` or `unit`): Cheapest first by price or by unit price (kilogram in Canada, pound in the US), items with nothing to compare come last
-   - Returns: `{ code, count, country, items, locale, query, total, truncated }`, each item with `id`, `link`, `merchant`, `name`, `originalPrice`, `perKg` (Canada) or `perLb` (US), `postText`, `preText`, `price`, `saleStory`, `validTo`
+   - Returns: `{ code, count, country, items, locale, query, total, truncated }`, each item with `id`, `link`, `merchant`, `name`, `originalPrice`, `postText`, `preText`, `price`, `saleStory`, `unit`, `unitPrice`, `validTo`
 
 4. `status`
    - Get the status of the flyer services and the full tool surface with usage guidance
@@ -107,6 +107,8 @@ Call `status` first at session start to get the state of the flyer services and 
 ### Limits
 
 - Search matches are loose, a search for chicken also returns pies and hot dogs, so the agent picks the relevant items
-- `perKg` (Canada) or `perLb` (US) is absent when the flyer prints no unit and no pack size, when it prints two different weights, or when the price is for several packs, and the agent must not assume one
+- `unitPrice` is the price of one `unit` (`kg` in Canada, `lb` in the US), and is absent when the flyer prints no unit and no pack size, when it prints two different weights, when the price is for several packs or for several products, and the agent must not assume one
+- The server has no store locations, a flyer is for a chain and not for a branch
+- A flyer printed in one language keeps it, `locale` only chooses between two languages when both are printed
 - Some items carry their price only in the flyer picture, `read` with `image` shows it
 - The US forces English, `fr` applies to Canada only
