@@ -46,7 +46,7 @@ export class McpTool {
       outputSchema: {
         code: z.string().describe('Normalized postal or ZIP code sent to the backend'),
         count: z.number().describe('Flyers returned'),
-        country: z.enum(['ca', 'us']).describe('Country of the postal code'),
+        country: z.enum(['ca', 'us']).describe('Country of the postal code, prices are in CAD for `ca` and USD for `us`'),
         flyers: z.array(z.object({
           availableFrom: z.string().describe('First day the flyer is visible on flipp.com, YYYY-MM-DD, often before `validFrom`'),
           availableTo: z.string().describe('Last day the flyer is visible on flipp.com, YYYY-MM-DD'),
@@ -91,7 +91,7 @@ export class McpTool {
       inputSchema: {
         code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`), the space is optional'),
         id: z.number().int().positive().describe('Item id, from a `search` result'),
-        image: z.enum(Client.images).optional().describe('Also return a picture: `cutout` is the product alone, `page` is the flyer page around it'),
+        image: z.enum(Client.images).optional().describe('Also return a picture: `cutout` is the item picture, `page` is the flyer page picture, what each shows depends on the merchant'),
         locale: z.enum(Client.locales).default('en').describe('Language of the links, `fr` applies to Canada only')
       },
       outputSchema: {
@@ -109,12 +109,12 @@ export class McpTool {
         name: z.string().describe('Full item name as printed in the flyer, in French and English when the flyer prints both'),
         originalPrice: z.number().nullable().describe('Regular price when the flyer gives it, otherwise null'),
         percentOff: z.number().optional().describe('Percent saved, when Flipp computes it'),
-        postText: z.string().optional().describe('Text printed after the price, like `/lb $39.66/kg`'),
-        preText: z.string().optional().describe('Text printed before the price, like `From`'),
+        postText: z.string().optional().describe('Text printed after the price as the merchant wrote it, like `/lb $39.66/kg`, `/SAC` or `/CAISSE`'),
+        preText: z.string().optional().describe('Text printed before the price, like `From`, or `2/` when the price is for 2 items'),
         price: z.number().nullable().describe('Special price, null when the flyer gives none'),
         saleStory: z.string().optional().describe('Promotion text of the flyer'),
-        unit: z.enum(['kg', 'lb']).optional().describe('Weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
-        unitPrice: z.number().optional().describe('Price of one `unit`, absent when the unit is not sure'),
+        unit: z.enum(['kg', 'lb']).optional().describe('Unit of weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
+        unitPrice: z.number().optional().describe('Price of one `unit`, best effort from the printed unit or pack size, converted when the flyer uses another unit, check it against `description` when it matters'),
         validFrom: z.string().describe('First valid day, YYYY-MM-DD'),
         validTo: z.string().describe('Last valid day, YYYY-MM-DD')
       },
@@ -129,6 +129,7 @@ export class McpTool {
           'Use after `search` on the few items worth a closer look, each call is one request to Flipp',
           'Read `description` for the pack size and the regular price before calling a price a deal',
           'Without `postText` the unit of `price` is not known, check `description` or use `image`',
+          '`originalPrice` can be null here while `search` has it, `dollarsOff` and `percentOff` still give the saving',
           '`price` is null when the flyer gives none, see `saleStory` for offers like buy one get one',
           'Use `image` only when seeing the item helps the choice'
         ]
@@ -156,7 +157,7 @@ export class McpTool {
       outputSchema: {
         code: z.string().describe('Normalized postal or ZIP code sent to the backend'),
         count: z.number().describe('Items returned'),
-        country: z.enum(['ca', 'us']).describe('Country of the postal code'),
+        country: z.enum(['ca', 'us']).describe('Country of the postal code, prices are in CAD for `ca` and USD for `us`'),
         items: z.array(z.object({
           id: z.number().describe('Item id'),
           link: z.string().describe('Link of the item on flipp.com'),
@@ -164,12 +165,12 @@ export class McpTool {
           merchantId: z.number().describe('Flipp merchant id, stable for a chain, 0 when unknown'),
           name: z.string().describe('Item name as printed in the flyer, in the language of `locale` when the flyer prints both'),
           originalPrice: z.number().nullable().describe('Regular price when the flyer gives it, otherwise null'),
-          postText: z.string().optional().describe('Text printed after the price, like `/lb` or `+TX`'),
-          preText: z.string().optional().describe('Text printed before the price, like `From`'),
+          postText: z.string().optional().describe('Text printed after the price as the merchant wrote it, like `/lb`, `/SAC` or `+TX`'),
+          preText: z.string().optional().describe('Text printed before the price, like `From`, or `2/` when the price is for 2 items'),
           price: z.number().nullable().describe('Special price, null when the flyer gives none'),
           saleStory: z.string().optional().describe('Promotion text of the flyer'),
-          unit: z.enum(['kg', 'lb']).optional().describe('Weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
-          unitPrice: z.number().optional().describe('Price of one `unit`, absent when the unit is not sure'),
+          unit: z.enum(['kg', 'lb']).optional().describe('Unit of weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
+          unitPrice: z.number().optional().describe('Price of one `unit`, best effort from the printed unit or pack size, converted when the flyer uses another unit, check it against `description` when it matters'),
           validTo: z.string().describe('End of the offer, ISO timestamp in UTC, `read` gives the local day, which can be one day earlier')
         })).describe('Items, best match first'),
         locale: z.enum(Client.locales).describe('Language used'),
@@ -186,6 +187,8 @@ export class McpTool {
       _meta: {
         usage: [
           'Matches are loose, pick the relevant items and ignore other kinds of merchants like liquor stores',
+          'All the words must match, search one product per call',
+          'In Canada English and French words find different items, search in both',
           'Use `sort: "unit"` and `unitPrice` to compare, an item without it has no known unit',
           'Use `read` on the few items worth a closer look, for the pack size and the picture',
           '`validTo` is in UTC, an offer ending at 03:59 UTC ends the evening before in Montréal',
@@ -232,6 +235,7 @@ export class McpTool {
           'Ask the user for the postal or ZIP code first, never guess it',
           'Tell the user that the code and any search words are sent to Flipp',
           'Always give the user the `link` of a flyer or item, so they can open the source on flipp.com',
+          'Merchants sometimes enter wrong or mixed information (name, description, picture), when fields disagree or a price looks odd, check with `read`, `image` or the `link` before recommending',
           'Tell the user the data comes from Flipp and that the flyer on flipp.com takes precedence over it'
         ]
       }

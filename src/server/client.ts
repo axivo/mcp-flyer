@@ -542,7 +542,8 @@ export class Client {
    * in the text when the price is for the whole pack or for each bag and the text
    * gives one weight only. Anything else, like two different weights, an
    * approximate weight, a price per piece or a price for several
-   * packs (`2/`, `2 FOR`) or for several products (`X or Y`), gives no answer. The answer is in pounds for the US and
+   * packs (`2/`, `2 FOR`), for several products (`X or Y`) or a unit price printed
+   * in the text that this function does not read, gives no answer. The answer is in pounds for the US and
    * in kilograms for Canada.
    *
    * @private
@@ -561,7 +562,7 @@ export class Client {
     const perKilo = post.match(/(\d+[.,]\d+)\s*\$?\s*\/?\s*kg\b/i);
     const per100g = post.match(/(\d+[.,]\d+)\s*\$?\s*\/\s*100\s*g\b/i);
     const weights: Record<string, number> = { g: 0.001, kg: 1, lb: 0.45359237, lbs: 0.45359237, oz: 0.0283495 };
-    const packs = [...`${text} ${post}`.matchAll(/(?:(\d+)\s*x\s*)?(\d+(?:[.,]\d+)?)\s*(kg|g|lbs?|(?<!fl\.?\s*)oz)\b/gi)].map((pack) => Number(pack[1] ?? 1) * Number(pack[2].replace(',', '.')) * (weights[pack[3].toLowerCase()] ?? 0));
+    const packs = [...`${text} ${post}`.matchAll(/(?:(\d+)\s*[x×]\s*)?(\d+(?:[.,]\d+)?)\s*(kg|g|lbs?|(?<!fl\.?\s*)oz)\b/gi)].map((pack) => Number(pack[1] ?? 1) * Number(pack[2].replace(',', '.')) * (weights[pack[3].toLowerCase()] ?? 0));
     const kilos = packs[0] ?? 0;
     let value: number | undefined;
     if (perKilo) {
@@ -574,7 +575,7 @@ export class Client {
       value = price * 10;
     } else if (/^\/\s*kg\b/i.test(post)) {
       value = price;
-    } else if (kilos > 0 && packs.every((pack) => pack < kilos * 1.1 && pack > kilos / 1.1) && !/\/(?!\s*(ea|each|sac|bag)\b)/i.test(post) && !/^from$|^buy\b|\d\s*(\/|for\b)/i.test(preText ?? '') && !/approx|\b(or|ou)\b/i.test(text)) {
+    } else if (kilos > 0 && packs.every((pack) => pack < kilos * 1.1 && pack > kilos / 1.1) && !/\/(?!\s*(ea|each|sac|bag)\b)/i.test(post) && !/^from$|^buy\b|\d\s*(\/|for\b)/i.test(preText ?? '') && !/approx|\b(or|ou)\b|\d\s*-\s*\d+(?:[.,]\d+)?\s*(kg|g|lbs?|oz)\b|\d\s*-?\s*(ct|count|pk|pack|pcs|pieces|bars?|un|unit[ée]s?)\b|\d\s*\$?\s*\/\s*(lb|kg|100\s*g)\b/i.test(text)) {
       value = price / kilos;
     }
     if (value === undefined) {
@@ -618,8 +619,8 @@ export class Client {
    * @returns {Promise<StatusResult>} Reachability of both and the server version
    */
   async getStatus(): Promise<StatusResult> {
-    const site = await this.getProbe(Client.siteUrl);
     const backend = await this.getProbe(Client.backendUrl);
+    const site = await this.getProbe(Client.siteUrl);
     return { backend, site, version: this.version };
   }
 
