@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Tool `search` returning the items on special, with `merchant`, `limit` and `sort` parameters
 - Tool `status` returning the HTTP status and response time of the flyer backend and of `flipp.com`, the server version and the full tool surface with usage guidance
 - Fields `unit` (`kg` in Canada, `lb` in the US) and `unitPrice` on `search` items and on `read`, read from the printed unit or pack size and left out when neither is sure, when the text has two different weights or when the price is for several packs or several products
-- Parameter `sort` on `search` with `price` and `unit` values, cheapest first
+- Parameter `sort` on `search` with `unit` and `price` values, cheapest first
 - Name in the language of `locale` when the flyer prints French and English, and removal of items printed twice by one merchant with the same name and price
 - Canadian postal code and US ZIP code validation, with a short error for any other value
 - Request pause of 400 milliseconds, request timeout of 10 seconds and response size cap on every tool

@@ -84,7 +84,7 @@ Call `status` first at session start to get the state of the flyer services and 
      - `code` (string): Canadian postal code or US ZIP code
      - `id` (number): Item id, from a `search` result
    - Optional inputs:
-     - `image` (string: `cutout` or `page`): Also return a picture, `cutout` is the product alone and `page` is the flyer page around it
+     - `image` (string: `cutout` or `page`): Also return a picture, `cutout` is the item picture and `page` is the flyer page picture, what each shows depends on the merchant
      - `locale` (string: `en` or `fr`, default: `en`): Language of the links
    - Returns: `{ brand, description, disclaimer, dollarsOff, flyerId, flyerLink, id, image, link, merchant, name, originalPrice, percentOff, postText, preText, price, saleStory, unit, unitPrice, validFrom, validTo }`, plus the picture as image content when `image` is set
 
