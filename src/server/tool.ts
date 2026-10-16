@@ -72,8 +72,8 @@ export class McpTool {
       },
       _meta: {
         usage: [
-          'Use `search` to find the items on special, this lists the flyers only',
-          'Use `merchant` to narrow the list instead of asking for more than needed'
+          'Use `merchant` to narrow the list instead of asking for more than needed',
+          'Use `search` to find the items on special, this lists the flyers only'
         ]
       }
     };
@@ -126,12 +126,12 @@ export class McpTool {
       },
       _meta: {
         usage: [
-          'Use after `search` on the few items worth a closer look, each call is one request to Flipp',
-          'Read `description` for the pack size and the regular price before calling a price a deal',
-          'Without `postText` the unit of `price` is not known, check `description` or use `image`',
           '`originalPrice` can be null here while `search` has it, `dollarsOff` and `percentOff` still give the saving',
           '`price` is null when the flyer gives none, see `saleStory` for offers like buy one get one',
-          'Use `image` only when seeing the item helps the choice'
+          'Read `description` for the pack size and the regular price before calling a price a deal',
+          'Use `image` only when seeing the item helps the choice',
+          'Use after `search` on the few items worth a closer look, each call is one request to Flipp',
+          'Without `postText` the unit of `price` is not known, check `description` or use `image`'
         ]
       }
     };
@@ -186,13 +186,13 @@ export class McpTool {
       },
       _meta: {
         usage: [
-          'Matches are loose, pick the relevant items and ignore other kinds of merchants like liquor stores',
+          '`validTo` is in UTC, an offer ending at 03:59 UTC ends the evening before in Montréal',
           'All the words must match, search one product per call',
           'In Canada English and French words find different items, search in both',
-          'Use `sort: "unit"` and `unitPrice` to compare, an item without it has no known unit',
+          'Matches are loose, pick the relevant items and ignore other kinds of merchants like liquor stores',
+          'Use `merchant` to narrow the search instead of asking for more than needed',
           'Use `read` on the few items worth a closer look, for the pack size and the picture',
-          '`validTo` is in UTC, an offer ending at 03:59 UTC ends the evening before in Montréal',
-          'Use `merchant` to narrow the search instead of asking for more than needed'
+          'Use `sort: "unit"` and `unitPrice` to compare, an item without it has no known unit'
         ]
       }
     };
@@ -230,13 +230,15 @@ export class McpTool {
       },
       _meta: {
         usage: [
+          'Always give the user the `link` of a flyer or item, so they can open the source on flipp.com',
+          'Ask the user for the postal or ZIP code first, never guess it',
           'Call once at session start to learn the tool surface and whether Flipp answers',
           'Each tool entry includes its `usage` array of natural-language hints',
-          'Ask the user for the postal or ZIP code first, never guess it',
-          'Tell the user that the code and any search words are sent to Flipp',
-          'Always give the user the `link` of a flyer or item, so they can open the source on flipp.com',
           'Merchants sometimes enter wrong or mixed information (name, description, picture), when fields disagree or a price looks odd, check with `read`, `image` or the `link` before recommending',
-          'Tell the user the data comes from Flipp and that the flyer on flipp.com takes precedence over it'
+          'Search only with product words, never with the diet or allergies of the user',
+          'Tell the user that the code and any search words are sent to Flipp',
+          'Tell the user the data comes from Flipp and that the flyer on flipp.com takes precedence over it',
+          'When planning meals, first ask the user about allergies, diets and foods they dislike'
         ]
       }
     };
