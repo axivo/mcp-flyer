@@ -288,9 +288,19 @@ export class Client {
   private lastRequest: number;
   private version: string;
   private static readonly backendUrl = 'https://backflipp.wishabi.com';
+  private static readonly doubts = {
+    approximate: /approx/i,
+    count: /\d\s*-?\s*(ct|count|pk|pack|pcs|pieces|bars?|un|unit[ée]s?)\b/i,
+    printed: /\d\s*\$?\s*\/\s*(lb|kg|100\s*g)\b/i,
+    range: /\d\s*-\s*\d+(?:[.,]\d+)?\s*(kg|g|lbs?|oz)\b/i,
+    several: /\b(or|ou)\b/i
+  };
   private static readonly imageHost = 'wishabi.net';
   static readonly images = ['cutout', 'page'] as const;
+  private static readonly kilogramsPerPound = 0.45359237;
   static readonly locales = ['en', 'fr'] as const;
+  private static readonly packPattern = /(?:(\d+)\s*[x\u00d7]\s*)?(\d+(?:[.,]\d+)?)\s*(kg|g|lbs?|(?<!fl\.?\s*)oz)\b/gi;
+  private static readonly poundsPerKilogram = 2.20462;
   private static readonly requestDelayMs = 400;
   private static readonly requestTimeoutMs = 10000;
   private static readonly siteUrl = 'https://flipp.com';
@@ -440,6 +450,22 @@ export class Client {
   }
 
   /**
+   * Reads the weights of a text in kilograms
+   *
+   * Takes every weight printed in the text (`900 g`, `5 lb`, `12 oz`), a count
+   * before it (`2 x 2.58 kg`, written with `x` or the multiplication sign)
+   * multiplies the weight.
+   *
+   * @private
+   * @param {string} text - Name, description and words printed after the price
+   * @returns {number[]} Weight of each pack found, in kilograms
+   */
+  private getPacks(text: string): number[] {
+    const weights: Record<string, number> = { g: 0.001, kg: 1, lb: Client.kilogramsPerPound, lbs: Client.kilogramsPerPound, oz: 0.0283495 };
+    return [...text.matchAll(Client.packPattern)].map((pack) => Number(pack[1] ?? 1) * Number(pack[2].replace(',', '.')) * (weights[pack[3].toLowerCase()] ?? 0));
+  }
+
+  /**
    * Downloads a picture and encodes it for image content
    *
    * Sends one GET after the minimum delay. The address must be on the Flipp
@@ -561,27 +587,33 @@ export class Client {
     const post = postText ?? '';
     const perKilo = post.match(/(\d+[.,]\d+)\s*\$?\s*\/?\s*kg\b/i);
     const per100g = post.match(/(\d+[.,]\d+)\s*\$?\s*\/\s*100\s*g\b/i);
-    const weights: Record<string, number> = { g: 0.001, kg: 1, lb: 0.45359237, lbs: 0.45359237, oz: 0.0283495 };
-    const packs = [...`${text} ${post}`.matchAll(/(?:(\d+)\s*[x×]\s*)?(\d+(?:[.,]\d+)?)\s*(kg|g|lbs?|(?<!fl\.?\s*)oz)\b/gi)].map((pack) => Number(pack[1] ?? 1) * Number(pack[2].replace(',', '.')) * (weights[pack[3].toLowerCase()] ?? 0));
+    const packs = this.getPacks(`${text} ${post}`);
     const kilos = packs[0] ?? 0;
+    const close = packs.every((pack) => pack < kilos * 1.1 && pack > kilos / 1.1);
+    const bundled = /^from$|^buy\b|\d\s*(\/|for\b)/i.test(preText ?? '');
+    const otherUnit = /\/(?!\s*(ea|each|sac|bag)\b)/i.test(post);
+    const doubted = Object.values(Client.doubts).some((doubt) => doubt.test(text));
     let value: number | undefined;
     if (perKilo) {
       value = Number(perKilo[1].replace(',', '.'));
     } else if (per100g) {
       value = Number(per100g[1].replace(',', '.')) * 10;
     } else if (/^(?:\/|per\s+)?\s*lb\b/i.test(post)) {
-      value = price * 2.20462;
+      value = price * Client.poundsPerKilogram;
     } else if (/^\/\s*100\s*g\b/i.test(post)) {
       value = price * 10;
     } else if (/^\/\s*kg\b/i.test(post)) {
       value = price;
-    } else if (kilos > 0 && packs.every((pack) => pack < kilos * 1.1 && pack > kilos / 1.1) && !/\/(?!\s*(ea|each|sac|bag)\b)/i.test(post) && !/^from$|^buy\b|\d\s*(\/|for\b)/i.test(preText ?? '') && !/approx|\b(or|ou)\b|\d\s*-\s*\d+(?:[.,]\d+)?\s*(kg|g|lbs?|oz)\b|\d\s*-?\s*(ct|count|pk|pack|pcs|pieces|bars?|un|unit[ée]s?)\b|\d\s*\$?\s*\/\s*(lb|kg|100\s*g)\b/i.test(text)) {
+    } else if (kilos > 0 && close && !bundled && !otherUnit && !doubted) {
       value = price / kilos;
     }
     if (value === undefined) {
       return {};
     }
-    return country === 'us' ? { unit: 'lb', unitPrice: Math.round(value * 0.45359237 * 100) / 100 } : { unit: 'kg', unitPrice: Math.round(value * 100) / 100 };
+    if (country === 'us') {
+      return { unit: 'lb', unitPrice: Math.round(value * Client.kilogramsPerPound * 100) / 100 };
+    }
+    return { unit: 'kg', unitPrice: Math.round(value * 100) / 100 };
   }
 
   /**
@@ -613,8 +645,8 @@ export class Client {
   /**
    * Checks the flyer services
    *
-   * Sends one HEAD request to the website the links open and one to the
-   * backend the data comes from.
+   * Sends one HEAD request to the backend the data comes from and one to the
+   * website the links open.
    *
    * @returns {Promise<StatusResult>} Reachability of both and the server version
    */
