@@ -66,7 +66,7 @@ The consumer backend at `https://backflipp.wishabi.com/flipp`, discovered from t
 | `/items/<id>?locale=`                    | `read`   | Answers `{ item }`, prices are strings, `404` for an unknown id                         |
 | `HEAD /` and `HEAD https://flipp.com`    | `status` | HTTP status and time of each service, null status when there is no answer                                        |
 
-Canadian codes (`A9A 9A9`) and US ZIP codes (`99999`) are told apart by shape, nothing else is accepted. Links differ by country: Canada uses `https://flipp.com/<locale>-ca/flyer/<id>` and `/item/<id>`, the US uses `/en-us/weekly_ad/<id>?postal_code=<zip>` and `/en-us/item/<id>?postal_code=<zip>`. The US is always English.
+Canadian codes (`A9A 9A9`) and US ZIP codes (`99999`) are told apart by shape, nothing else is accepted. Links differ by country in the path: Canada uses `https://flipp.com/<locale>-ca/flyer/<id>` and `/item/<id>`, the US uses `/en-us/weekly_ad/<id>` and `/en-us/item/<id>`. Every link ends with `?postal_code=<code>`, otherwise flipp.com opens the location saved in the visitor's browser. The US is always English.
 
 ### Data Quirks
 
