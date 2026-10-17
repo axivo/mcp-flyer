@@ -26,25 +26,25 @@ The server's job is small and focused: accept a tool call from the host, ask Fli
 
 ```
 .
-├── package.json                          npm metadata, runtime deps: @modelcontextprotocol/sdk, zod
-├── tsconfig.json                         strict TypeScript, ES2022 target, NodeNext modules, no DOM
-├── CHANGELOG.md                          Keep a Changelog format, semver
-├── README.md                             user-facing install + tool reference, credit to Flipp
-├── SECURITY.md                           threat model, supply-chain integrity policy
-├── LICENSE                               BSD-3-Clause
 ├── .github/
-│   ├── workflows/package.yml             trusted-publish to npm on `v*` tag push (no PAT, OIDC provenance)
-│   ├── renovate.json5                    dependency dashboard config
-│   └── pull_request_template.md
+│   ├── pull_request_template.md
+│   ├── renovate.json5                dependency dashboard config
+│   └── workflows/package.yml         trusted-publish to npm on `v*` tag push (no PAT, OIDC provenance)
 ├── .vscode/
-│   ├── settings.json                     editor formatting, 2-space indent, format-on-save
-│   └── extensions.json                   recommended extensions
-└── src/
-    ├── index.ts                          entry point - stdio transport + Mcp class instantiation, EPIPE handling
-    └── server/
-        ├── mcp.ts                        Mcp class - registers tools via McpServer.registerTool, owns dispatch
-        ├── tool.ts                       McpTool class - tool definitions (Zod input/output schemas, _meta.usage, annotations)
-        └── client.ts                     Client class - Flipp requests, postal and ZIP code validation, link building, unit prices, pictures
+│   ├── extensions.json               recommended extensions
+│   └── settings.json                 editor formatting, 2-space indent, format-on-save
+├── src/
+│   ├── index.ts                      entry point - stdio transport + Mcp class instantiation, EPIPE handling
+│   └── server/
+│       ├── client.ts                 Client class - Flipp requests, postal and ZIP code validation, link building, unit prices, pictures
+│       ├── mcp.ts                    Mcp class - registers tools via McpServer.registerTool, owns dispatch
+│       └── tool.ts                   McpTool class - tool definitions (Zod input/output schemas, _meta.usage, annotations)
+├── CHANGELOG.md                      Keep a Changelog format, semver
+├── LICENSE                           BSD-3-Clause
+├── package.json                      npm metadata, runtime deps: @modelcontextprotocol/sdk, zod
+├── README.md                         user-facing install + tool reference, credit to Flipp
+├── SECURITY.md                       threat model, supply-chain integrity policy
+└── tsconfig.json                     strict TypeScript, ES2022 target, NodeNext modules, no DOM
 ```
 
 ### Three-Class Server
