@@ -316,6 +316,25 @@ export class Client {
   }
 
   /**
+   * Builds the flipp.com link of a flyer
+   *
+   * Canadian flyers open at `/<locale>-ca/flyer/<id>`, US flyers at
+   * `/en-us/weekly_ad/<id>`.
+   *
+   * @private
+   * @param {number} id - Flyer id
+   * @param {Location} location - Validated postal code and its country
+   * @param {Locale} locale - Language of the link
+   * @returns {string} Absolute flipp.com link
+   */
+  private getFlyerLink(id: number, location: Location, locale: Locale): string {
+    if (location.country === 'us') {
+      return this.getLink(`/en-us/weekly_ad/${id}`, location);
+    }
+    return this.getLink(`/${locale}-ca/flyer/${id}`, location);
+  }
+
+  /**
    * Builds the headers sent with every request
    *
    * The User-Agent says what this is and where the data is linked back to.
@@ -333,8 +352,8 @@ export class Client {
   /**
    * Builds the flipp.com link of an item
    *
-   * Canadian items open at `/<locale>-ca/item/<id>`. US items open at
-   * `/en-us/item/<id>` and need the ZIP code, like the flyers.
+   * Canadian items open at `/<locale>-ca/item/<id>`, US items at
+   * `/en-us/item/<id>`.
    *
    * @private
    * @param {number} id - Item id
@@ -344,9 +363,9 @@ export class Client {
    */
   private getItemLink(id: number, location: Location, locale: Locale): string {
     if (location.country === 'us') {
-      return `${Client.siteUrl}/en-us/item/${id}?postal_code=${location.code}`;
+      return this.getLink(`/en-us/item/${id}`, location);
     }
-    return `${Client.siteUrl}/${locale}-ca/item/${id}`;
+    return this.getLink(`/${locale}-ca/item/${id}`, location);
   }
 
   /**
@@ -379,23 +398,19 @@ export class Client {
   }
 
   /**
-   * Builds the flipp.com link of a flyer
+   * Builds a flipp.com link for a location
    *
-   * Canadian flyers open at `/<locale>-ca/flyer/<id>`. US flyers open at
-   * `/en-us/weekly_ad/<id>` and need the ZIP code, otherwise flipp.com
-   * redirects to the flyers of the location saved in the visitor's browser.
+   * The postal code travels in the link, otherwise flipp.com opens the
+   * location saved in the visitor's browser and can show another area.
    *
    * @private
-   * @param {number} id - Flyer id
+   * @param {string} path - Path on flipp.com, starting with a slash
    * @param {Location} location - Validated postal code and its country
-   * @param {Locale} locale - Language of the link
    * @returns {string} Absolute flipp.com link
    */
-  private getLink(id: number, location: Location, locale: Locale): string {
-    if (location.country === 'us') {
-      return `${Client.siteUrl}/en-us/weekly_ad/${id}?postal_code=${location.code}`;
-    }
-    return `${Client.siteUrl}/${locale}-ca/flyer/${id}`;
+  private getLink(path: string, location: Location): string {
+    const query = new URLSearchParams({ postal_code: location.code });
+    return `${Client.siteUrl}${path}?${query.toString()}`;
   }
 
   /**
@@ -696,7 +711,7 @@ export class Client {
         availableTo: (flyer.available_to ?? '').slice(0, 10),
         categories: flyer.categories ?? [],
         id: flyer.id,
-        link: this.getLink(flyer.id, location, locale),
+        link: this.getFlyerLink(flyer.id, location, locale),
         merchant: (flyer.merchant ?? '').trim(),
         merchantId: flyer.merchant_id ?? 0,
         name: flyer.name ?? '',
@@ -750,7 +765,7 @@ export class Client {
       disclaimer: item.disclaimer_text?.trim() || undefined,
       dollarsOff: item.dollars_off ?? undefined,
       flyerId,
-      flyerLink: this.getLink(flyerId, location, locale),
+      flyerLink: this.getFlyerLink(flyerId, location, locale),
       id: item.id,
       image: picture ? options.image : undefined,
       link: this.getItemLink(item.id, location, locale),
