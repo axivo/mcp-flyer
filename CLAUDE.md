@@ -53,7 +53,7 @@ The server splits into three classes with sharp boundaries. Each owns one concer
 
 - **`Mcp` (`src/server/mcp.ts`)** - wires the SDK to handlers. Owns the `McpServer` instance, registers tools via `registerTool`, dispatches calls to `handle*` methods. No domain logic; no Flipp knowledge. The constructor instantiates `Client` and `McpTool`, then calls `registerAll()` once. `handleRead` is the only handler that returns image content next to the structured payload.
 - **`McpTool` (`src/server/tool.ts`)** - pure tool definitions. Each method returns a literal config object (description, Zod input/output schemas, `ToolAnnotations`, `_meta.usage`) consumed by `registerTool`. Return types are intentionally inferred so TypeScript captures each tool's specific input shape and propagates it to handler signatures.
-- **`Client` (`src/server/client.ts`)** - Flipp domain ops. Validates the postal or ZIP code, sends the requests (pause, timeout, `404` mapped to a short message), maps the backend items to rows, builds the `flipp.com` links, reads the price of a kilogram, downloads a picture, and caps the response size. Every method that talks to Flipp goes through `getJson()` or `getPicture()`.
+- **`Client` (`src/server/client.ts`)** - Flipp domain ops. Validates the postal or ZIP code, sends the requests (pause, timeout, `404` mapped to a short message), maps the backend items to rows, builds the `flipp.com` links, reads the price of a kilogram, downloads a picture, and trims the rows to `maxChars` when the caller gives one. Every method that talks to Flipp goes through `getJson()` or `getPicture()`.
 
 ### Flipp Backend
 
@@ -62,7 +62,8 @@ The consumer backend at `https://backflipp.wishabi.com/flipp`, discovered from t
 | Endpoint                                 | Used by  | Notes                                                                                   |
 | ---------------------------------------- | -------- | --------------------------------------------------------------------------------------- |
 | `/flyers?locale=&postal_code=`           | `list`   | Flyer list, times carry a local offset                                                  |
-| `/items/search?q=&locale=&postal_code=`  | `search` | At most 150 items, loose relevance, `merchant_id` is ignored, `valid_to` is UTC         |
+| `/flyers/<id>?locale=`                   | `search` | The whole flyer in one answer (about 250 KB, 432 items for a large IGA flyer), the postal code is not needed, `404` for an unknown id, items carry `brand`, `discount`, `id`, `name`, a `price` string and no merchant or dates |
+| `/items/search?q=&locale=&postal_code=`  | `search` | 150 items by default, `limit` up to 200 (422 above), loose relevance, `merchant_id` is ignored, `valid_to` is UTC         |
 | `/items/<id>?locale=`                    | `read`   | Answers `{ item }`, prices are strings, `404` for an unknown id                         |
 | `HEAD /` and `HEAD https://flipp.com`    | `status` | HTTP status and time of each service, null status when there is no answer                                        |
 
@@ -72,11 +73,16 @@ Canadian codes (`A9A 9A9`) and US ZIP codes (`99999`) are told apart by shape, n
 
 - Names are bilingual (`FRANÇAIS | ENGLISH`), `search` keeps the part for the `locale`
 - Many items carry no unit, the words around the price are in `pre_price_text` and `post_price_text` (`From`, `/lb`, `+TX`)
+- `search` has two sources. Without `flyerId` it uses `/items/search`, loose and capped at 200 items (`limit=200`, the maximum Flipp accepts) across stores before the `merchant` filter, so a chain with few matches can be missed. With `flyerId` it reads the whole flyer, keeps the items whose name has every word of `query` (case and accents ignored, so `poulet` does not find `chicken`), sorts only by `price`, and pages with `offset` and `limit` from one request, nothing is cached. Flyer items have no merchant, unit or dates, and some are promotion tiles with no price (loyalty points, store services), kept because they are the flyer's data
 - Items with an empty name and no price are skipped, named items with no price are real promotions and are kept
-- `unitPrice` and its `unit` (`kg` in Canada, `lb` in the US) are computed only from a printed price per kilogram, a printed price per 100 g, a unit right after the price (`/lb`, `Per Lb.`, `/100g`, `/kg`), or one pack size in the name or description for a flat price, a `/ea` or a `/SAC`. Approximate weights, `From` prices, two different weights, `X or Y` listings and multi-buy prices (`2/`, `2 FOR`, `BUY 1 FOR`) give nothing. `read` looks at the description first, the name only when there is no description
+- `unitPrice` and its `unit` (`kg` in Canada, `lb` in the US) are computed only from a printed price per kilogram, a printed price per 100 g, a unit right after the price (`/lb`, `Per Lb.`, `/100g`, `/kg`), or one pack size in the name or description for a flat price, a `/ea` or a `/SAC`. Approximate weights, ranges (`255-454 g`, `255 à 454 g`, `255 to 454 g`), `From` prices, two different weights, `X or Y` listings and multi-buy prices (`2/`, `2 FOR`, `BUY 1 FOR`) give nothing. `read` looks at the description first, the name only when there is no description
 - US flyers print pounds and ounces only, so the US answer is a price of a pound
 - The `cutout` and `page` pictures depend on how the merchant uploaded them, either may show the product alone or the flyer crop with the price
 - Pictures are served as `application/octet-stream` and checked by their first bytes, then returned as `image/jpeg` or `image/png`
+- `search` returns `validTo` as the UTC timestamp Flipp sends, `2026-10-22T03:59:59+00:00` is the evening of the 21st in Montreal. `list` and `read` keep the first 10 characters of Flipp's dates, which carry the local offset, so they give the local day. No time zone logic exists in the server
+- Flipp sends `valid_from` in the `search` items too, but `search` does not return it and no reason was recorded when the tool was built. Checked on 2026-10-18 with one query, `chicken breast` for a Montreal postal code: all items were active, none starting later and none expired, so it adds little, and `list` and `read` carry `validFrom`. Revisit if a raw search response shows an item with a future `valid_from`, most likely midweek when the next flyers are previewed
+- Flipp's two endpoints can disagree: `originalPrice` is set in `/items/search` and empty in `/items/<id>` for about a third of the items checked (17 of 52 on 2026-10-18), and no value ever differed. Search rows have no `description` or `disclaimer`, only `read` has them. Both are passed as Flipp sends them
+- Merchants print what they like, so fields can disagree. One Adonis item printed `reg. 9,99$/kg` in the description while the picture showed `/lb`. A unit price printed in the description is not read (see `getUnitPrice`), so `unitPrice` can be missing, check the description with `read` and the picture with `image`
 
 ### Server Lifecycle
 

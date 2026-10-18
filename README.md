@@ -11,9 +11,10 @@ A MCP (Model Context Protocol) server for grocery flyer deals and unit prices, p
 ### Features
 
 - **Weekly Specials**: Search the items on special for a Canadian postal code or a US ZIP code
-- **Unit Prices**: Price of a kilogram (Canada) or of a pound (US) read from the unit or the pack size printed in the flyer, never guessed
+- **Unit Prices**: Price of a kilogram (Canada) or of a pound (US) read from the unit or the pack size printed in the flyer, left out when not sure
 - **Cheapest First**: Sort a search by unit price or by price
 - **Flyer Listing**: Grocery flyers published for an area, with validity dates
+- **Whole Flyer**: Every item of one flyer, in pages, or only the ones whose name has the words given
 - **Item Detail**: Brand, size, regular price, savings and conditions of one item
 - **Product Pictures**: Optional product image or flyer page, to see what the item looks like
 - **Bilingual**: English and French names and links for Canada
@@ -55,6 +56,7 @@ There are no environment variables.
 - "_Search for chicken breast near ZIP code 60601, cheapest first_"
 - "_Compare ground beef at IGA and Metro in H2X 1Y4_"
 - "_Compare ground beef at Kroger in 30301_"
+- "_What else is on special in the IGA flyer for H2X 1Y4? I need pantry items for a pasta dinner_"
 - "_Is the picanha at Metro worth buying? Show me what it looks like_"
 - "_Plan three dinners from this week's specials near 10001_"
 - "_Search for eggs near 94105 and show me the cheapest dozen_"
@@ -65,50 +67,57 @@ There are no environment variables.
 
 ### MCP Tools
 
-Call `status` first at session start to get the state of the flyer services and the full tool surface. Every tool takes a Canadian postal code or a US ZIP code as `code`, and the server asks for it instead of guessing.
+Call `status` first at session start to get the state of the flyer services and the full tool surface. Every tool takes a Canadian postal code or a US ZIP code as `code`.
 
 1. `list`
    - List the grocery flyers for a postal or ZIP code
    - Required inputs:
-     - `code` (string): Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`), the space is optional
+     - `code` (string): Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)
    - Optional inputs:
-     - `grocery` (boolean, default: true): Only grocery flyers, `false` includes pharmacy, hardware and other flyers
-     - `limit` (number, default: 100): Maximum flyers returned (max 200)
-     - `locale` (string: `en` or `fr`, default: `en`): Language of flyer names and links, `fr` applies to Canada only
-     - `merchant` (string): Merchant names to keep, comma separated, matched as case-insensitive substrings (e.g. `IGA,Metro`)
-   - Returns: `{ code, count, country, flyers, locale, total, truncated }`, each flyer with `availableFrom`, `availableTo`, `categories`, `id`, `link`, `merchant`, `name`, `updatedAt`, `validFrom`, `validTo`
+     - `grocery` (boolean, default: true): Only grocery flyers
+     - `limit` (number, default: 100): Maximum flyers returned
+     - `locale` (string: `en` or `fr`, default: `en`): Language of flyer names and links
+     - `maxChars` (number): Maximum characters of the returned flyers
+     - `merchant` (string): Merchant names to keep
+   - Returns: `{ code, count, country, flyers, locale, total, truncated }`
 
 2. `read`
    - Read an item on special in full
    - Required inputs:
      - `code` (string): Canadian postal code or US ZIP code
-     - `id` (number): Item id, from a `search` result
+     - `id` (number): Item id
    - Optional inputs:
-     - `image` (string: `cutout` or `page`): Also return a picture, `cutout` is the item picture and `page` is the flyer page picture, what each shows depends on the merchant
+     - `image` (string: `cutout` or `page`): Picture to return
      - `locale` (string: `en` or `fr`, default: `en`): Language of the links
-   - Returns: `{ brand, description, disclaimer, dollarsOff, flyerId, flyerLink, id, image, link, merchant, name, originalPrice, percentOff, postText, preText, price, saleStory, unit, unitPrice, validFrom, validTo }`, plus the picture as image content when `image` is set
+   - Returns: Item with `description`, `disclaimer`, prices and dates, plus the picture as image content when `image` is set
 
 3. `search`
-   - Search the items on special for a postal or ZIP code
+   - Search the items on special for a postal or ZIP code, or inside one flyer
    - Required inputs:
      - `code` (string): Canadian postal code or US ZIP code
-     - `query` (string): Words to search, in English or French (e.g. `chicken breast`, `poulet`)
-   - Optional inputs:
-     - `limit` (number, default: 30): Maximum items returned (max 150)
-     - `locale` (string: `en` or `fr`, default: `en`): Language of names and links, `fr` applies to Canada only
-     - `merchant` (string): Merchant names to keep, comma separated, matched as case-insensitive substrings
-     - `sort` (string: `price` or `unit`): Cheapest first by price or by unit price (kilogram in Canada, pound in the US), items with nothing to compare come last
-   - Returns: `{ code, count, country, items, locale, query, total, truncated }`, each item with `id`, `link`, `merchant`, `name`, `originalPrice`, `postText`, `preText`, `price`, `saleStory`, `unit`, `unitPrice`, `validTo`
+   - Optional inputs (`query` or `flyerId` required):
+     - `flyerId` (number): Flyer id to search inside
+     - `limit` (number, default: 30): Maximum items returned
+     - `locale` (string: `en` or `fr`, default: `en`): Language of the item names and links
+     - `maxChars` (number): Maximum characters of the returned items
+     - `merchant` (string): Merchant names to keep
+     - `offset` (number, default: 0): Items to skip
+     - `query` (string): Words to search (e.g. `chicken breast`, `poulet`)
+     - `sort` (string: `price` or `unit`): Cheapest first by price or by unit price
+   - Returns: `{ code, count, country, items, locale, offset, query, total, truncated }`
 
 4. `status`
    - Get the status of the flyer services and the full tool surface with usage guidance
-   - Returns: `{ backend, site, tools, version }`, each with its HTTP `status` (null when there was no answer) and response time in `ms`
+   - Returns: `{ backend, site, tools, version }`
 
 ### Limits
 
-- Search matches are loose, a search for chicken also returns pies and hot dogs, so the agent picks the relevant items
-- `unitPrice` is the price of one `unit` (`kg` in Canada, `lb` in the US), and is absent when the flyer prints no unit and no pack size, when it prints two different weights, when the price is for several packs or for several products, and the agent must not assume one
-- The server has no store locations, a flyer is for a chain and not for a branch
-- A flyer printed in one language keeps it, `locale` only chooses between two languages when both are printed
-- Some items carry their price only in the flyer picture, `read` with `image` shows it
+- Search matches are loose, a search for chicken also returns pies and hot dogs
+- `unitPrice` is left out when the flyer prints no unit and no pack size, two different weights, a range of weights, or a price for several packs or products
+- Search items carry no `description` or `disclaimer`, `read` has them
+- `originalPrice` can be set in a search and empty in `read`, both as Flipp sends them
+- The items of a flyer carry no merchant, unit price, price words or dates
+- A search covers every kind of flyer, `list` shows grocery flyers unless `grocery` is `false`
+- A flyer printed in one language keeps it, whatever the `locale`
 - The US forces English, `fr` applies to Canada only
+- The server has no store locations, a flyer is for a chain and not for a branch
