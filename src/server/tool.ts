@@ -37,11 +37,12 @@ export class McpTool {
     return {
       description: 'List the grocery flyers for a postal or ZIP code',
       inputSchema: {
-        code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`), the space is optional'),
-        grocery: z.boolean().default(true).describe('Only grocery flyers, set `false` to include pharmacy, hardware and other flyers'),
-        limit: z.number().int().positive().max(200).default(100).describe('Maximum flyers returned (max 200)'),
-        locale: z.enum(Client.locales).default('en').describe('Language of flyer names and links, `fr` applies to Canada only'),
-        merchant: z.string().optional().describe('Merchant names to keep, comma separated, matched as case-insensitive substrings (e.g. `IGA,Metro`)')
+        code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
+        grocery: z.boolean().default(true).describe('Only grocery flyers'),
+        limit: z.number().int().positive().default(100).describe('Maximum flyers returned'),
+        locale: z.enum(Client.locales).default('en').describe('Language of flyer names and links'),
+        maxChars: z.number().int().positive().optional().describe('Maximum characters of the returned flyers'),
+        merchant: z.string().optional().describe('Merchant names to keep')
       },
       outputSchema: {
         code: z.string().describe('Normalized postal or ZIP code sent to the backend'),
@@ -62,7 +63,7 @@ export class McpTool {
         })).describe('Flyers, sorted by merchant'),
         locale: z.enum(Client.locales).describe('Language used'),
         total: z.number().describe('Flyers matching the filters before `limit`'),
-        truncated: z.boolean().describe('True when `limit` or the response size cap left flyers out')
+        truncated: z.boolean().describe('True when `limit` or `maxChars` left flyers out')
       },
       annotations: {
         title: 'List',
@@ -72,6 +73,10 @@ export class McpTool {
       },
       _meta: {
         usage: [
+          'Check `truncated` to know when rows were left out',
+          'Pass `merchant` as comma separated names, matched as case-insensitive substrings (e.g. `IGA,Metro`)',
+          'Set `grocery` to `false` to include pharmacy, hardware and other flyers',
+          'Set `maxChars` or lower `limit` when a result is too long for the host',
           'Use `merchant` to narrow the list instead of asking for more than needed',
           'Use `search` to find the items on special, this lists the flyers only'
         ]
@@ -89,10 +94,10 @@ export class McpTool {
     return {
       description: 'Read an item on special in full',
       inputSchema: {
-        code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`), the space is optional'),
-        id: z.number().int().positive().describe('Item id, from a `search` result'),
-        image: z.enum(Client.images).optional().describe('Also return a picture: `cutout` is the item picture, `page` is the flyer page picture, what each shows depends on the merchant'),
-        locale: z.enum(Client.locales).default('en').describe('Language of the links, `fr` applies to Canada only')
+        code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
+        id: z.number().int().positive().describe('Item id'),
+        image: z.enum(Client.images).optional().describe('Picture to return, `cutout` is the item and `page` is the flyer page'),
+        locale: z.enum(Client.locales).default('en').describe('Language of the links')
       },
       outputSchema: {
         brand: z.string().optional().describe('Brand, when the flyer gives one'),
@@ -109,12 +114,12 @@ export class McpTool {
         name: z.string().describe('Full item name as printed in the flyer, in French and English when the flyer prints both'),
         originalPrice: z.number().nullable().describe('Regular price when the flyer gives it, otherwise null'),
         percentOff: z.number().optional().describe('Percent saved, when Flipp computes it'),
-        postText: z.string().optional().describe('Text printed after the price, exactly as the merchant wrote it, so it can also hold dates or pack sizes, like `/lb $39.66/kg`, `/SAC` or `/CAISSE`'),
-        preText: z.string().optional().describe('Text printed before the price, like `From`, or `2/` when the price is for 2 items'),
+        postText: z.string().optional().describe('Text printed after the price (e.g. `/lb $39.66/kg`, `/SAC`)'),
+        preText: z.string().optional().describe('Text printed before the price (e.g. `From`, `2/`)'),
         price: z.number().nullable().describe('Special price, null when the flyer gives none'),
         saleStory: z.string().optional().describe('Promotion text of the flyer'),
         unit: z.enum(['kg', 'lb']).optional().describe('Unit of weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
-        unitPrice: z.number().optional().describe('Price of one `unit`, best effort from the printed unit or pack size, converted when the flyer uses another unit, check it against `description` when it matters'),
+        unitPrice: z.number().optional().describe('Price of one `unit`, computed from the printed unit or pack size'),
         validFrom: z.string().describe('First valid day, YYYY-MM-DD'),
         validTo: z.string().describe('Last valid day, YYYY-MM-DD')
       },
@@ -128,9 +133,10 @@ export class McpTool {
         usage: [
           '`originalPrice` can be null here while `search` has it, `dollarsOff` and `percentOff` still give the saving',
           '`price` is null when the flyer gives none, see `saleStory` for offers like buy one get one',
-          'Read `description` for the pack size and the regular price before calling a price a deal',
+          'Read `description` and `disclaimer` for the pack size, the regular price and the coupon terms before calling a price a deal',
           'Use `image` only when seeing the item helps the choice',
           'Use after `search` on the few items worth a closer look, each call is one request to Flipp',
+          'What each picture shows depends on the merchant',
           'Without `postText` the unit of `price` is not known, check `description` or use `image`'
         ]
       }
@@ -145,38 +151,45 @@ export class McpTool {
    */
   search() {
     return {
-      description: 'Search the items on special for a postal or ZIP code',
+      description: 'Search the items on special for a postal or ZIP code, or inside one flyer',
       inputSchema: {
-        code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`), the space is optional'),
-        limit: z.number().int().positive().max(150).default(30).describe('Maximum items returned (max 150)'),
-        locale: z.enum(Client.locales).default('en').describe('Language of the item names and links, `fr` applies to Canada only, a flyer printed in one language keeps it'),
-        merchant: z.string().optional().describe('Merchant names to keep, comma separated, matched as case-insensitive substrings (e.g. `IGA,Metro`)'),
-        query: z.string().min(1).describe('Words to search, in English or French (e.g. `chicken breast`, `poulet`)'),
-        sort: z.enum(Client.sorts).optional().describe('Cheapest first by `price` or by `unit` price (kilogram in Canada, pound in the US), items with nothing to compare come last')
+        code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
+        flyerId: z.number().int().positive().optional().describe('Flyer id to search inside'),
+        limit: z.number().int().positive().default(30).describe('Maximum items returned'),
+        locale: z.enum(Client.locales).default('en').describe('Language of the item names and links'),
+        maxChars: z.number().int().positive().optional().describe('Maximum characters of the returned items'),
+        merchant: z.string().optional().describe('Merchant names to keep'),
+        offset: z.number().int().min(0).default(0).describe('Items to skip'),
+        query: z.string().min(1).optional().describe('Words to search (e.g. `chicken breast`, `poulet`)'),
+        sort: z.enum(Client.sorts).optional().describe('Cheapest first by `price` or by `unit` price')
       },
       outputSchema: {
         code: z.string().describe('Normalized postal or ZIP code sent to the backend'),
         count: z.number().describe('Items returned'),
         country: z.enum(['ca', 'us']).describe('Country of the postal code, prices are in CAD for `ca` and USD for `us`'),
         items: z.array(z.object({
+          brand: z.string().optional().describe('Brand, when the flyer gives one, only on the items of a flyer'),
+          discount: z.number().optional().describe('Percent off, when the flyer gives it, only on the items of a flyer'),
+          flyerId: z.number().optional().describe('Id of the flyer the item is in'),
           id: z.number().describe('Item id'),
           link: z.string().describe('Link of the item on flipp.com'),
-          merchant: z.string().describe('Merchant name'),
-          merchantId: z.number().describe('Flipp merchant id, stable for a chain, 0 when unknown'),
+          merchant: z.string().optional().describe('Merchant name, left out on the items of a flyer'),
+          merchantId: z.number().optional().describe('Flipp merchant id, stable for a chain, 0 when unknown, left out on the items of a flyer'),
           name: z.string().describe('Item name as printed in the flyer, in the language of `locale` when the flyer prints both'),
-          originalPrice: z.number().nullable().describe('Regular price when the flyer gives it, otherwise null'),
-          postText: z.string().optional().describe('Text printed after the price, exactly as the merchant wrote it, so it can also hold dates or pack sizes, like `/lb`, `/SAC` or `+TX`'),
-          preText: z.string().optional().describe('Text printed before the price, like `From`, or `2/` when the price is for 2 items'),
+          originalPrice: z.number().nullable().optional().describe('Regular price when the flyer gives it, otherwise null, left out on the items of a flyer'),
+          postText: z.string().optional().describe('Text printed after the price (e.g. `/lb`, `/SAC`, `+TX`)'),
+          preText: z.string().optional().describe('Text printed before the price (e.g. `From`, `2/`)'),
           price: z.number().nullable().describe('Special price, null when the flyer gives none'),
           saleStory: z.string().optional().describe('Promotion text of the flyer'),
           unit: z.enum(['kg', 'lb']).optional().describe('Unit of weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
-          unitPrice: z.number().optional().describe('Price of one `unit`, best effort from the printed unit or pack size, converted when the flyer uses another unit, check it against `description` when it matters'),
-          validTo: z.string().describe('End of the offer, ISO timestamp in UTC, `read` gives the local day, which can be one day earlier')
+          unitPrice: z.number().optional().describe('Price of one `unit`, computed from the printed unit or pack size'),
+          validTo: z.string().optional().describe('End of the offer, ISO timestamp in UTC, left out on the items of a flyer')
         })).describe('Items, best match first'),
         locale: z.enum(Client.locales).describe('Language used'),
-        query: z.string().describe('Search words used'),
-        total: z.number().describe('Items matching the filters before `limit`'),
-        truncated: z.boolean().describe('True when `limit` or the response size cap left items out')
+        offset: z.number().describe('Items skipped'),
+        query: z.string().optional().describe('Search words used'),
+        total: z.number().describe('Items matching the filters before `offset` and `limit`'),
+        truncated: z.boolean().describe('True when `limit` or `maxChars` left items out')
       },
       annotations: {
         title: 'Search',
@@ -187,12 +200,26 @@ export class McpTool {
       _meta: {
         usage: [
           '`validTo` is in UTC, an offer ending at 03:59 UTC ends the evening before in Montréal',
+          'A flyer printed in one language keeps it, whatever the `locale`',
           'All the words must match, search one product per call',
+          'Check `truncated` to know when rows were left out',
+          'Each item has its `flyerId`, search with it to see what else is on special in the same flyer',
           'In Canada English and French words find different items, search in both',
+          'Items with nothing to compare come last when sorting',
           'Matches are loose, pick the relevant items and ignore other kinds of merchants like liquor stores',
+          'Page through a long flyer with `limit` and `offset`',
+          'Pass `merchant` as comma separated names, matched as case-insensitive substrings (e.g. `IGA,Metro`)',
+          'Search covers every kind of flyer, not only grocery',
+          'Set `maxChars` or lower `limit` when a result is too long for the host',
+          'Take large flyer pages, each page is one request to Flipp',
+          'The `merchant` filter is ignored with a `flyerId`',
+          'The items of a flyer carry `brand` and `discount` but no unit, no price words and no merchant',
           'Use `merchant` to narrow the search instead of asking for more than needed',
-          'Use `read` on the few items worth a closer look, for the pack size and the picture',
-          'Use `sort: "unit"` and `unitPrice` to compare, an item without it has no known unit'
+          'Use `read` on the few items worth a closer look, rows here carry no `description` or `disclaimer`',
+          'Use `sort: "unit"` and `unitPrice` to compare, an item without it has no known unit',
+          'With a `flyerId` a `query` keeps the items whose name has the words',
+          'With a `flyerId` and no `query` every item of the flyer comes back',
+          'With a `flyerId` sort by `price`, the items of a flyer have no unit price'
         ]
       }
     };
@@ -238,6 +265,8 @@ export class McpTool {
           'Search only with product words, never with the diet or allergies of the user',
           'Tell the user that the code and any search words are sent to Flipp',
           'Tell the user the data comes from Flipp and that the flyer on flipp.com takes precedence over it',
+          'The `fr` locale applies to Canada only',
+          'Treat `unitPrice` as computed by the server from the flyer text, it is left out when unsure',
           'When planning meals, first ask the user about allergies, diets and foods they dislike'
         ]
       }

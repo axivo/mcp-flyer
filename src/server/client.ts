@@ -44,22 +44,26 @@ type Image = (typeof Client.images)[number];
  * `preText` and `postText` are the words Flipp prints around the price, like
  * `From`, `/lb` or `+TX`. Most items have no unit at all. `unitPrice` is the
  * price of one `unit`, read from those words or from a pack size in the name,
- * and is left out when neither gives a sure answer.
+ * and is left out when neither gives a sure answer. The rows of a flyer carry
+ * `brand` and `discount` instead of the merchant, the price words and the dates.
  */
 type ItemRow = {
+  brand?: string;
+  discount?: number;
+  flyerId?: number;
   id: number;
   link: string;
-  merchant: string;
-  merchantId: number;
+  merchant?: string;
+  merchantId?: number;
   name: string;
-  originalPrice: number | null;
+  originalPrice?: number | null;
   postText?: string;
   preText?: string;
   price: number | null;
   saleStory?: string;
   unit?: Unit;
   unitPrice?: number;
-  validTo: string;
+  validTo?: string;
 };
 
 /**
@@ -70,6 +74,7 @@ type ListOptions = {
   grocery: boolean;
   limit: number;
   locale: Locale;
+  maxChars?: number;
   merchant?: string;
 };
 
@@ -77,7 +82,7 @@ type ListOptions = {
  * Flyers available for a postal code
  *
  * `total` counts the flyers matching the filters, `count` the ones returned.
- * `truncated` is true when `limit` or the response size cap left some out.
+ * `truncated` is true when `limit` or `maxChars` left some out.
  */
 type ListResult = {
   code: string;
@@ -159,10 +164,22 @@ type RawFlyer = {
 };
 
 /**
+ * An item of a flyer as stored by the backend, only the fields used here
+ */
+type RawFlyerItem = {
+  brand?: string | null;
+  discount?: number | null;
+  id: number;
+  name?: string;
+  price?: string | null;
+};
+
+/**
  * A search item as stored by the backend, only the fields used here
  */
 type RawItem = {
   current_price?: number | null;
+  flyer_id?: number;
   id: number;
   merchant_id?: number;
   merchant_name?: string;
@@ -223,10 +240,13 @@ type ReadResult = {
  */
 type SearchOptions = {
   code: string;
+  flyerId?: number;
   limit: number;
   locale: Locale;
+  maxChars?: number;
   merchant?: string;
-  query: string;
+  offset: number;
+  query?: string;
   sort?: Sort;
 };
 
@@ -234,7 +254,8 @@ type SearchOptions = {
  * Items on special matching a search
  *
  * `total` counts the items matching the filters, `count` the ones returned.
- * `truncated` is true when `limit` or the response size cap left some out.
+ * `truncated` is true when more items follow the ones returned, `offset` is the
+ * number of items skipped.
  */
 type SearchResult = {
   code: string;
@@ -242,7 +263,8 @@ type SearchResult = {
   country: Country;
   items: ItemRow[];
   locale: Locale;
-  query: string;
+  offset: number;
+  query?: string;
   total: number;
   truncated: boolean;
 };
@@ -292,7 +314,7 @@ export class Client {
     approximate: /approx/i,
     count: /\d\s*-?\s*(ct|count|pk|pack|pcs|pieces|bars?|un|unit[ée]s?)\b/i,
     printed: /\d\s*\$?\s*\/\s*(lb|kg|100\s*g)\b/i,
-    range: /\d\s*-\s*\d+(?:[.,]\d+)?\s*(kg|g|lbs?|oz)\b/i,
+    range: /\d\s*(?:-|à|to)\s*\d+(?:[.,]\d+)?\s*(kg|g|lbs?|oz)\b/i,
     several: /\b(or|ou)\b/i
   };
   private static readonly imageHost = 'wishabi.net';
@@ -303,8 +325,8 @@ export class Client {
   private static readonly poundsPerKilogram = 2.20462;
   private static readonly requestDelayMs = 400;
   private static readonly requestTimeoutMs = 10000;
+  private static readonly searchLimit = 200;
   private static readonly siteUrl = 'https://flipp.com';
-  private static readonly sizeChars = 40000;
   static readonly sorts = ['price', 'unit'] as const;
 
   /**
@@ -313,6 +335,49 @@ export class Client {
   constructor() {
     this.lastRequest = 0;
     this.version = this.getVersion();
+  }
+
+  /**
+   * Gets the items of a flyer
+   *
+   * Sends one request for the whole flyer, then keeps the items whose name has
+   * every word of the query, ignoring case and accents. Without a query every
+   * item is kept. Prices come as numbers, a missing price is null.
+   *
+   * @private
+   * @param {number} flyerId - Flyer id
+   * @param {string | undefined} query - Words the item name must have
+   * @param {Location} location - Validated postal code and its country
+   * @param {Locale} locale - Language wanted
+   * @returns {Promise<ItemRow[]>} Items of the flyer, in the order Flipp sends them
+   * @throws {Error} When the flyer does not exist or the request fails
+   */
+  private async getFlyerItems(
+    flyerId: number,
+    query: string | undefined,
+    location: Location,
+    locale: Locale
+  ): Promise<ItemRow[]> {
+    const data = await this.getJson<{ items?: RawFlyerItem[] }>(
+      `/flipp/flyers/${flyerId}`,
+      { locale },
+      'Flyer not found'
+    );
+    const words = this.getWords(query ?? '');
+    return (data.items ?? [])
+      .filter((item) => (item.name ?? '').trim() !== '')
+      .filter((item) => {
+        const plain = this.getWords(item.name ?? '').join(' ');
+        return words.every((word) => plain.includes(word));
+      })
+      .map((item): ItemRow => ({
+        brand: item.brand?.trim() || undefined,
+        discount: item.discount ?? undefined,
+        id: item.id,
+        link: this.getItemLink(item.id, location, locale),
+        name: this.getName((item.name ?? '').trim(), locale),
+        price: this.getPrice(item.price)
+      }));
   }
 
   /**
@@ -476,8 +541,18 @@ export class Client {
    * @returns {number[]} Weight of each pack found, in kilograms
    */
   private getPacks(text: string): number[] {
-    const weights: Record<string, number> = { g: 0.001, kg: 1, lb: Client.kilogramsPerPound, lbs: Client.kilogramsPerPound, oz: 0.0283495 };
-    return [...text.matchAll(Client.packPattern)].map((pack) => Number(pack[1] ?? 1) * Number(pack[2].replace(',', '.')) * (weights[pack[3].toLowerCase()] ?? 0));
+    const weights: Record<string, number> = {
+      g: 0.001,
+      kg: 1,
+      lb: Client.kilogramsPerPound,
+      lbs: Client.kilogramsPerPound,
+      oz: 0.0283495
+    };
+    return [...text.matchAll(Client.packPattern)].map((pack) => {
+      const count = Number(pack[1] ?? 1);
+      const amount = Number(pack[2].replace(',', '.'));
+      return count * amount * (weights[pack[3].toLowerCase()] ?? 0);
+    });
   }
 
   /**
@@ -554,6 +629,68 @@ export class Client {
   }
 
   /**
+   * Gets the items matching a search
+   *
+   * Sends one request. Items keep the order of the backend, best match first.
+   * Items without a name are skipped, the backend sends them with no price
+   * either. The rest are filtered by merchant name when given, and an item
+   * printed twice with the same name and price by one merchant is kept once.
+   *
+   * @private
+   * @param {string} query - Words to search
+   * @param {string | undefined} merchant - Merchant names to keep, comma separated
+   * @param {Location} location - Validated postal code and its country
+   * @param {Locale} locale - Language wanted
+   * @returns {Promise<ItemRow[]>} Items found
+   * @throws {Error} When the request fails
+   */
+  private async getQueryItems(
+    query: string,
+    merchant: string | undefined,
+    location: Location,
+    locale: Locale
+  ): Promise<ItemRow[]> {
+    const data = await this.getJson<{ items?: RawItem[] }>(
+      '/flipp/items/search',
+      { limit: String(Client.searchLimit), locale, postal_code: location.code, q: query },
+      'No flyers found for this code'
+    );
+    const merchants = this.getMerchants(merchant);
+    const rows = (data.items ?? [])
+      .filter((item) => (item.name ?? '').trim() !== '')
+      .filter((item) => {
+        const merchantName = (item.merchant_name ?? '').toLowerCase();
+        return merchants.length === 0 || merchants.some((name) => merchantName.includes(name));
+      })
+      .map((item): ItemRow => {
+        const name = (item.name ?? '').trim();
+        const postText = item.post_price_text?.trim() || undefined;
+        const preText = item.pre_price_text?.trim() || undefined;
+        const price = item.current_price ?? null;
+        return {
+          flyerId: item.flyer_id,
+          id: item.id,
+          link: this.getItemLink(item.id, location, locale),
+          merchant: (item.merchant_name ?? '').trim(),
+          merchantId: item.merchant_id ?? 0,
+          name: this.getName(name, locale),
+          originalPrice: item.original_price ?? null,
+          ...this.getUnitPrice(price, preText, postText, name, location.country),
+          postText,
+          preText,
+          price,
+          saleStory: item.sale_story?.trim() || undefined,
+          validTo: item.valid_to ?? ''
+        };
+      });
+    const seen = new Set<string>();
+    return rows.filter((row) => {
+      const key = [row.merchantId, row.name, row.price, row.postText].join('|');
+      return seen.has(key) ? false : Boolean(seen.add(key));
+    });
+  }
+
+  /**
    * Describes the shape of a code, one character per character of the input
    *
    * A letter becomes `A`, a digit becomes `9` and anything else becomes `?`,
@@ -595,7 +732,13 @@ export class Client {
    * @param {Country} country - Country of the postal code
    * @returns {UnitPrice} Unit and price of one unit, empty when not sure
    */
-  private getUnitPrice(price: number | null, preText: string | undefined, postText: string | undefined, text: string, country: Country): UnitPrice {
+  private getUnitPrice(
+    price: number | null,
+    preText: string | undefined,
+    postText: string | undefined,
+    text: string,
+    country: Country
+  ): UnitPrice {
     if (price === null || price <= 0) {
       return {};
     }
@@ -632,6 +775,17 @@ export class Client {
   }
 
   /**
+   * Splits a text into lowercase words without accents
+   *
+   * @private
+   * @param {string} text - Text to split
+   * @returns {string[]} Words of the text
+   */
+  private getWords(text: string): string[] {
+    return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().split(/\s+/).filter(Boolean);
+  }
+
+  /**
    * Waits for the minimum delay since the previous request
    *
    * @private
@@ -646,13 +800,19 @@ export class Client {
   }
 
   /**
-   * Drops rows from the end until the serialized rows fit the response size cap
+   * Drops rows from the end until the serialized rows fit a character limit
+   *
+   * Does nothing when no limit is given.
    *
    * @private
    * @param {unknown[]} rows - Rows to cut in place, at least one row is kept
+   * @param {number} [maxChars] - Maximum characters of the serialized rows
    */
-  private trim(rows: unknown[]): void {
-    while (rows.length > 1 && JSON.stringify(rows).length > Client.sizeChars) {
+  private trim(rows: unknown[], maxChars?: number): void {
+    if (maxChars === undefined) {
+      return;
+    }
+    while (rows.length > 1 && JSON.stringify(rows).length > maxChars) {
       rows.pop();
     }
   }
@@ -692,7 +852,7 @@ export class Client {
    * Lists the flyers available for a postal code
    *
    * Sends one request. Flyers are filtered to grocery flyers by default, then
-   * by merchant name when given, and cut to `limit` and to the response size cap.
+   * by merchant name when given, and cut to `limit` and to `maxChars` when given.
    *
    * @param {ListOptions} options - Listing options
    * @returns {Promise<ListResult>} Flyers found
@@ -701,11 +861,18 @@ export class Client {
   async list(options: ListOptions): Promise<ListResult> {
     const location = this.getLocation(options.code);
     const locale: Locale = location.country === 'us' ? 'en' : options.locale;
-    const data = await this.getJson<{ flyers?: RawFlyer[] }>('/flipp/flyers', { locale, postal_code: location.code }, 'No flyers found for this code');
+    const data = await this.getJson<{ flyers?: RawFlyer[] }>(
+      '/flipp/flyers',
+      { locale, postal_code: location.code },
+      'No flyers found for this code'
+    );
     const merchants = this.getMerchants(options.merchant);
     const matches = (data.flyers ?? [])
       .filter((flyer) => !options.grocery || (flyer.categories ?? []).includes('Groceries'))
-      .filter((flyer) => merchants.length === 0 || merchants.some((name) => (flyer.merchant ?? '').toLowerCase().includes(name)))
+      .filter((flyer) => {
+        const merchantName = (flyer.merchant ?? '').toLowerCase();
+        return merchants.length === 0 || merchants.some((name) => merchantName.includes(name));
+      })
       .map((flyer): FlyerRow => ({
         availableFrom: (flyer.available_from ?? '').slice(0, 10),
         availableTo: (flyer.available_to ?? '').slice(0, 10),
@@ -721,7 +888,7 @@ export class Client {
       }))
       .sort((a, b) => a.merchant.localeCompare(b.merchant) || a.validFrom.localeCompare(b.validFrom) || a.id - b.id);
     const flyers = matches.slice(0, options.limit);
-    this.trim(flyers);
+    this.trim(flyers, options.maxChars);
     return {
       code: location.code,
       count: flyers.length,
@@ -747,7 +914,11 @@ export class Client {
   async read(options: ReadOptions): Promise<ReadResult> {
     const location = this.getLocation(options.code);
     const locale: Locale = location.country === 'us' ? 'en' : options.locale;
-    const data = await this.getJson<{ item: RawDetail }>(`/flipp/items/${options.id}`, { locale }, 'Item not found');
+    const data = await this.getJson<{ item: RawDetail }>(
+      `/flipp/items/${options.id}`,
+      { locale },
+      'Item not found'
+    );
     const item = data.item;
     const flyerId = item.flyer_id ?? 0;
     const url = options.image === 'page' ? item.image_url : item.cutout_image_url;
@@ -788,66 +959,45 @@ export class Client {
   /**
    * Searches the items on special for a postal code
    *
-   * Sends one request. Items keep the order of the backend, best match first,
-   * unless `sort` asks for the cheapest first, with the items that have nothing
-   * to compare left at the end. Items without a name are skipped, the backend
-   * sends them with no price either. The rest are filtered by merchant name when
-   * given, and an item printed twice with the same name and price by one
-   * merchant is kept once. The result is cut to `limit` and to the response
-   * size cap.
+   * Sends one request. With a `flyerId` the items come from that flyer, in the
+   * order Flipp sends them, every one of them when there is no query. Otherwise they
+   * come from the search of the backend, best match first. `sort` asks for the
+   * cheapest first, with the items that have nothing to compare left at the end.
+   * The result skips `offset` items, then is cut to `limit` and to `maxChars`
+   * when given.
    *
    * @param {SearchOptions} options - Search options
    * @returns {Promise<SearchResult>} Items found
-   * @throws {Error} When the postal code is invalid or the request fails
+   * @throws {Error} When there is no query and no flyer, a unit sort asks for a flyer, the postal code is invalid or the request fails
    */
   async search(options: SearchOptions): Promise<SearchResult> {
+    if (options.flyerId === undefined && !options.query) {
+      throw new Error('Give a `query` to search by words, a `flyerId` to see a flyer, or both');
+    }
+    if (options.flyerId !== undefined && options.sort === 'unit') {
+      throw new Error('The items of a flyer have no unit price, sort by price instead');
+    }
     const location = this.getLocation(options.code);
     const locale: Locale = location.country === 'us' ? 'en' : options.locale;
-    const data = await this.getJson<{ items?: RawItem[] }>('/flipp/items/search', { locale, postal_code: location.code, q: options.query }, 'No flyers found for this code');
-    const merchants = this.getMerchants(options.merchant);
-    const rows = (data.items ?? [])
-      .filter((item) => (item.name ?? '').trim() !== '')
-      .filter((item) => merchants.length === 0 || merchants.some((name) => (item.merchant_name ?? '').toLowerCase().includes(name)))
-      .map((item): ItemRow => {
-        const name = (item.name ?? '').trim();
-        const postText = item.post_price_text?.trim() || undefined;
-        const preText = item.pre_price_text?.trim() || undefined;
-        const price = item.current_price ?? null;
-        return {
-          id: item.id,
-          link: this.getItemLink(item.id, location, locale),
-          merchant: (item.merchant_name ?? '').trim(),
-          merchantId: item.merchant_id ?? 0,
-          name: this.getName(name, locale),
-          originalPrice: item.original_price ?? null,
-          ...this.getUnitPrice(price, preText, postText, name, location.country),
-          postText,
-          preText,
-          price,
-          saleStory: item.sale_story?.trim() || undefined,
-          validTo: item.valid_to ?? ''
-        };
-      });
-    const seen = new Set<string>();
-    const matches = rows.filter((row) => {
-      const key = [row.merchantId, row.name, row.price, row.postText].join('|');
-      return seen.has(key) ? false : Boolean(seen.add(key));
-    });
+    const matches = options.flyerId === undefined
+      ? await this.getQueryItems(options.query ?? '', options.merchant, location, locale)
+      : await this.getFlyerItems(options.flyerId, options.query, location, locale);
     if (options.sort) {
       const key = options.sort === 'unit' ? 'unitPrice' : 'price';
       matches.sort((a, b) => (a[key] ?? Infinity) - (b[key] ?? Infinity));
     }
-    const items = matches.slice(0, options.limit);
-    this.trim(items);
+    const items = matches.slice(options.offset, options.offset + options.limit);
+    this.trim(items, options.maxChars);
     return {
       code: location.code,
       count: items.length,
       country: location.country,
       items,
       locale,
+      offset: options.offset,
       query: options.query,
       total: matches.length,
-      truncated: items.length < matches.length
+      truncated: options.offset + items.length < matches.length
     };
   }
 }
