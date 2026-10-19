@@ -1,0 +1,51 @@
+{
+  "name": "@axivo/mcp-flyer",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MCP server for grocery flyer deals and unit prices",
+  "keywords": [
+    "deals",
+    "flyer",
+    "grocery",
+    "mcp",
+    "model-context-protocol",
+    "server"
+  ],
+  "license": "BSD-3-Clause",
+  "author": "AXIVO",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/axivo/mcp-flyer.git"
+  },
+  "files": [
+    "dist/**/*",
+    "LICENSE",
+    "README.md"
+  ],
+  "bin": {
+    "mcp-flyer": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "typescript": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "index.js",
+  "bugs": {
+    "url": "https://github.com/axivo/mcp-flyer/issues"
+  },
+  "homepage": "https://github.com/axivo/mcp-flyer"
+}

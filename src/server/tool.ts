@@ -1,0 +1,255 @@
+/**
+ * MCP Tool Definitions for Flyer Integration
+ *
+ * @module server/tool
+ * @author AXIVO
+ * @license BSD-3-Clause
+ */
+
+import { z } from 'zod';
+import { Client } from './client.js';
+
+/**
+ * Reusable Zod schema for a status check
+ */
+const probeShape = {
+  ms: z.number().describe('Time to answer in milliseconds'),
+  status: z.number().nullable().describe('HTTP status, null when there was no answer')
+};
+
+/**
+ * MCP tool definitions for the grocery flyers
+ *
+ * Each method returns an inline literal config object passed to
+ * `McpServer.registerTool`. Return types are inferred so each tool's input
+ * shape propagates to its handler.
+ *
+ * @class McpTool
+ */
+export class McpTool {
+  /**
+   * Creates MCP tool for listing the flyers of a postal code
+   *
+   * Sends one request to the flyer backend and returns the flyers published
+   * for the area, each with its flipp.com link.
+   */
+  list() {
+    return {
+      description: 'List the grocery flyers for a postal or ZIP code',
+      inputSchema: {
+        code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
+        grocery: z.boolean().default(true).describe('Only grocery flyers'),
+        limit: z.number().int().positive().default(100).describe('Maximum flyers returned'),
+        locale: z.enum(Client.locales).default('en').describe('Language of flyer names and links'),
+        maxChars: z.number().int().positive().optional().describe('Maximum characters of the returned flyers'),
+        merchant: z.string().optional().describe('Merchant names to keep')
+      },
+      outputSchema: {
+        code: z.string().describe('Normalized postal or ZIP code sent to the backend'),
+        count: z.number().describe('Flyers returned'),
+        country: z.enum(['ca', 'us']).describe('Country of the postal code, prices are in CAD for `ca` and USD for `us`'),
+        flyers: z.array(z.object({
+          availableFrom: z.string().describe('First day the flyer is visible on flipp.com, YYYY-MM-DD, often before `validFrom`'),
+          availableTo: z.string().describe('Last day the flyer is visible on flipp.com, YYYY-MM-DD'),
+          categories: z.array(z.string()).describe('Flipp categories of the flyer'),
+          id: z.number().describe('Flyer id'),
+          link: z.string().describe('Link of the flyer on flipp.com'),
+          merchant: z.string().describe('Merchant name'),
+          merchantId: z.number().describe('Flipp merchant id, stable for a chain, 0 when unknown'),
+          name: z.string().describe('Flyer name'),
+          updatedAt: z.string().describe('When Flipp last updated the flyer, ISO timestamp'),
+          validFrom: z.string().describe('First valid day, YYYY-MM-DD'),
+          validTo: z.string().describe('Last valid day, YYYY-MM-DD')
+        })).describe('Flyers, sorted by merchant'),
+        locale: z.enum(Client.locales).describe('Language used'),
+        total: z.number().describe('Flyers matching the filters before `limit`'),
+        truncated: z.boolean().describe('True when `limit` or `maxChars` left flyers out')
+      },
+      annotations: {
+        title: 'List',
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      },
+      _meta: {
+        usage: [
+          'Pass `merchant` as comma separated names, matched as case-insensitive substrings (e.g. `IGA,Metro`)'
+        ]
+      }
+    };
+  }
+
+  /**
+   * Creates MCP tool for reading one item on special in full
+   *
+   * Sends one request to the flyer backend and returns the item with its size,
+   * unit price and regular price when the flyer gives them.
+   */
+  read() {
+    return {
+      description: 'Read an item on special in full',
+      inputSchema: {
+        code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
+        id: z.number().int().positive().describe('Item id'),
+        image: z.enum(Client.images).optional().describe('Picture to return, `cutout` is the item and `page` is the flyer page'),
+        locale: z.enum(Client.locales).default('en').describe('Language of the links')
+      },
+      outputSchema: {
+        brand: z.string().optional().describe('Brand, when the flyer gives one'),
+        description: z.string().optional().describe('Size, unit price and regular price as printed in the flyer, lines separated by new lines'),
+        disclaimer: z.string().optional().describe('Conditions or limits of the offer'),
+        dollarsOff: z.number().optional().describe('Amount saved, when Flipp computes it'),
+        flyerId: z.number().describe('Id of the flyer the item is in'),
+        flyerLink: z.string().describe('Link of the flyer on flipp.com'),
+        id: z.number().describe('Item id'),
+        image: z.enum(Client.images).optional().describe('Kind of picture sent with this result, when one was asked'),
+        link: z.string().describe('Link of the item on flipp.com'),
+        merchant: z.string().describe('Merchant name'),
+        merchantId: z.number().describe('Flipp merchant id, stable for a chain, 0 when unknown'),
+        name: z.string().describe('Full item name as printed in the flyer, in French and English when the flyer prints both'),
+        originalPrice: z.number().nullable().describe('Regular price when the flyer gives it, otherwise null'),
+        percentOff: z.number().optional().describe('Percent saved, when Flipp computes it'),
+        postText: z.string().optional().describe('Text printed after the price (e.g. `/lb $39.66/kg`, `/SAC`)'),
+        preText: z.string().optional().describe('Text printed before the price (e.g. `From`, `2/`)'),
+        price: z.number().nullable().describe('Special price, null when the flyer gives none'),
+        saleStory: z.string().optional().describe('Promotion text of the flyer'),
+        unit: z.enum(['kg', 'lb']).optional().describe('Unit of weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
+        unitPrice: z.number().optional().describe('Price of one `unit`, computed by the server from the printed unit or pack size, present when the answer is clear'),
+        validFrom: z.string().describe('First valid day, YYYY-MM-DD'),
+        validTo: z.string().describe('Last valid day, YYYY-MM-DD')
+      },
+      annotations: {
+        title: 'Read',
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      },
+      _meta: {
+        usage: [
+          '`originalPrice` can be null here while `search` has it, `dollarsOff` and `percentOff` still give the saving',
+          '`price` is null when the flyer gives none, see `saleStory` for offers like buy one get one',
+          'What each picture shows depends on the merchant'
+        ]
+      }
+    };
+  }
+
+  /**
+   * Creates MCP tool for searching the items on special
+   *
+   * Sends one request to the flyer backend and returns the items on special
+   * matching the search words, each with its flipp.com link.
+   */
+  search() {
+    return {
+      description: 'Search the items on special in every flyer for a postal or ZIP code, or inside one flyer',
+      inputSchema: {
+        code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
+        flyerId: z.number().int().positive().optional().describe('Flyer id to search inside'),
+        limit: z.number().int().positive().default(30).describe('Maximum items returned'),
+        locale: z.enum(Client.locales).default('en').describe('Language of the item names and links'),
+        maxChars: z.number().int().positive().optional().describe('Maximum characters of the returned items'),
+        merchant: z.string().optional().describe('Merchant names to keep'),
+        offset: z.number().int().min(0).default(0).describe('Items to skip'),
+        query: z.string().min(1).optional().describe('Words to search (e.g. `chicken breast`, `poulet`)'),
+        sort: z.enum(Client.sorts).optional().describe('Cheapest first by `price` or by `unit` price')
+      },
+      outputSchema: {
+        code: z.string().describe('Normalized postal or ZIP code sent to the backend'),
+        count: z.number().describe('Items returned'),
+        country: z.enum(['ca', 'us']).describe('Country of the postal code, prices are in CAD for `ca` and USD for `us`'),
+        items: z.array(z.object({
+          brand: z.string().optional().describe('Brand, when the flyer gives one, only on the items of a flyer'),
+          discount: z.number().optional().describe('Percent off, when the flyer gives it, only on the items of a flyer'),
+          flyerId: z.number().optional().describe('Id of the flyer the item is in'),
+          id: z.number().describe('Item id'),
+          link: z.string().describe('Link of the item on flipp.com'),
+          merchant: z.string().optional().describe('Merchant name, left out on the items of a flyer'),
+          merchantId: z.number().optional().describe('Flipp merchant id, stable for a chain, 0 when unknown, left out on the items of a flyer'),
+          name: z.string().describe('Item name as printed in the flyer, in the language of `locale` when the flyer prints both'),
+          originalPrice: z.number().nullable().optional().describe('Regular price when the flyer gives it, otherwise null, left out on the items of a flyer'),
+          postText: z.string().optional().describe('Text printed after the price (e.g. `/lb`, `/SAC`, `+TX`)'),
+          preText: z.string().optional().describe('Text printed before the price (e.g. `From`, `2/`)'),
+          price: z.number().nullable().describe('Special price, null when the flyer gives none'),
+          saleStory: z.string().optional().describe('Promotion text of the flyer'),
+          unit: z.enum(['kg', 'lb']).optional().describe('Unit of weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
+          unitPrice: z.number().optional().describe('Price of one `unit`, computed by the server from the printed unit or pack size, present when the answer is clear'),
+          validTo: z.string().optional().describe('End of the offer, ISO timestamp in UTC, left out on the items of a flyer')
+        })).describe('Items, best match first'),
+        locale: z.enum(Client.locales).describe('Language used'),
+        offset: z.number().describe('Items skipped'),
+        query: z.string().optional().describe('Search words used'),
+        total: z.number().describe('Items matching the filters before `offset` and `limit`'),
+        truncated: z.boolean().describe('True when `limit` or `maxChars` left items out')
+      },
+      annotations: {
+        title: 'Search',
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      },
+      _meta: {
+        usage: [
+          'A flyer printed in one language keeps it, whatever the `locale`',
+          'All the words must match, search one product per call',
+          'Each page of a flyer is a new request to Flipp, a larger `limit` reads it in fewer requests',
+          'In Canada English and French words find different items, search in both',
+          'Items with nothing to compare come last when sorting',
+          'Matches are broad, liquor stores and other kinds of merchants can appear',
+          'Pass `merchant` as comma separated names, matched as case-insensitive substrings (e.g. `IGA,Metro`)',
+          'Rows carry no `description` or `disclaimer`, `read` has them',
+          'The `merchant` filter is ignored with a `flyerId`',
+          'With a `flyerId` a `query` keeps the items whose name has the words',
+          'With a `flyerId` and no `query` every item of the flyer comes back',
+          'With a `flyerId` sort by `price`, the items of a flyer have no unit price'
+        ]
+      }
+    };
+  }
+
+  /**
+   * Creates MCP tool for environment introspection
+   *
+   * Returns the HTTP status of flipp.com and of the flyer backend, the server
+   * version, and the full set of available tools with their schemas,
+   * annotations, and `_meta.usage` arrays. Use at session start to learn the
+   * surface, the rules, and whether the services answer.
+   */
+  status() {
+    return {
+      description: 'Get the status of the flyer services and the full tool surface with usage guidance',
+      outputSchema: {
+        backend: z.object(probeShape).describe('Flyer backend, the source of the data'),
+        site: z.object(probeShape).describe('flipp.com, the website the links open'),
+        tools: z.array(z.object({
+          name: z.string(),
+          description: z.string(),
+          inputSchema: z.unknown().optional(),
+          outputSchema: z.unknown().optional(),
+          annotations: z.unknown().optional(),
+          usage: z.array(z.string()).optional()
+        })).describe('All available tools with their schemas and usage guidance'),
+        version: z.string().describe('Server version')
+      },
+      annotations: {
+        title: 'Status',
+        readOnlyHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      },
+      _meta: {
+        usage: [
+          'Each merchant types its own flyer, so a field can differ from the picture',
+          'Keep the search words to the product, the diet and allergies of your peer stay in the conversation, Flipp does not need them',
+          'Share the `link` of a flyer or item when it is useful in conversation',
+          'Tell your peer that the code and any search words are sent to Flipp',
+          'Tell your peer the data comes from Flipp',
+          'Tell your peer the flyer on flipp.com takes precedence over the data, it is the version the merchant published',
+          'The `flyer` tools are designed by instances, they promote curiosity and exploration',
+          'The `fr` locale applies to Canada only',
+          'When planning meals, ask your peer about allergies, diets and foods they dislike'
+        ]
+      }
+    };
+  }
+}
