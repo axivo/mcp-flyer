@@ -20,17 +20,12 @@ The following threat vectors are in scope:
 
 - Arbitrary code execution through MCP tool inputs
 - Requests sent to hosts other than the Flipp backend, `flipp.com` and the Flipp picture host
-- Prompt injection through flyer content returned to the MCP client
 - Disclosure of the user's postal or ZIP code beyond the single request that needs it
 - Supply chain compromise of published npm artifacts
 
 ### Data Sent to Flipp
 
-Each `list`, `search` and `read` call sends the postal or ZIP code and, for `search`, the search words to `backflipp.wishabi.com`. The `status` tool sends two `HEAD` requests, one to the backend and one to `flipp.com`, with no user data. Requests carry a `mcp-flyer` user agent with the server version, are sent one at a time, and wait at least 400 milliseconds between them. The server asks the agent to tell the user that the code is sent to Flipp.
-
-### Prompt Injection Through Flyer Content
-
-Item names, descriptions, disclaimers and promotion texts are written by merchants and relayed unchanged to the MCP client. A malicious or compromised flyer could contain text that looks like an instruction to the agent. The server never acts on that text, it only returns it as data, so the risk sits with the MCP client and the agent. The tools are read-only, so such text cannot cause a write or a purchase through this server.
+Each `list`, `search` and `read` call sends the postal or ZIP code and, for `search`, the search words to `backflipp.wishabi.com`. The `status` tool sends two `HEAD` requests, one to the backend and one to `flipp.com`, with no user data. Requests carry a `mcp-flyer` user agent with the server version, are sent one at a time, and wait at least 400 milliseconds between them.
 
 ### Pictures
 

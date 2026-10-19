@@ -92,7 +92,7 @@ Call `status` first at session start to get the state of the flyer services and 
    - Returns: Item with `description`, `disclaimer`, prices and dates, plus the picture as image content when `image` is set
 
 3. `search`
-   - Search the items on special for a postal or ZIP code, or inside one flyer
+   - Search the items on special in every flyer for a postal or ZIP code, or inside one flyer
    - Required inputs:
      - `code` (string): Canadian postal code or US ZIP code
    - Optional inputs (`query` or `flyerId` required):

@@ -71,6 +71,7 @@ Canadian codes (`A9A 9A9`) and US ZIP codes (`99999`) are told apart by shape, n
 
 ### Data Quirks
 
+- Flipp's data passes through as it comes, the server never alters a field it sends. The only computed field is `unitPrice`, and it is left out when the answer is not clear
 - Names are bilingual (`FRANÇAIS | ENGLISH`), `search` keeps the part for the `locale`
 - Many items carry no unit, the words around the price are in `pre_price_text` and `post_price_text` (`From`, `/lb`, `+TX`)
 - `search` has two sources. Without `flyerId` it uses `/items/search`, loose and capped at 200 items (`limit=200`, the maximum Flipp accepts) across stores before the `merchant` filter, so a chain with few matches can be missed. With `flyerId` it reads the whole flyer, keeps the items whose name has every word of `query` (case and accents ignored, so `poulet` does not find `chicken`), sorts only by `price`, and pages with `offset` and `limit` from one request, nothing is cached. Flyer items have no merchant, unit or dates, and some are promotion tiles with no price (loyalty points, store services), kept because they are the flyer's data
@@ -105,7 +106,7 @@ Four tools live in `McpTool`, each registered once in `Mcp.registerAll()`. All a
 | `search` | Search the items on special, cheapest first when asked    | `readOnlyHint: true`, `openWorldHint: true`      |
 | `status` | HTTP status of Flipp and the full tool surface           | `readOnlyHint: true`, `openWorldHint: true`      |
 
-Each tool's `_meta.usage` array carries natural-language guidance for the calling agent. The rules shared by every tool live in the `status` tool, so the other tools carry only what is specific to them: ask the user for the code and never guess it, tell the user that the code and the search words are sent to Flipp, always give the `link`, and say that the data comes from Flipp and that `flipp.com` takes precedence.
+Each tool's `_meta.usage` array carries natural-language guidance for the calling agent. The rules shared by every tool live in the `status` tool, so the other tools carry only what is specific to them: ask the peer for the code, tell the peer that the code and the search words are sent to Flipp, share the `link`, and say that the data comes from Flipp and that `flipp.com` takes precedence.
 
 ### Build and Publish
 
@@ -134,8 +135,20 @@ There are no environment variables and no configuration file. The server runs ou
 - No em-dash characters in source
 - Values that can grow, like the locales, come from a `static readonly` list and the type is derived from it
 - Tool definitions in `McpTool` return inline literal config objects passed straight to `registerTool`, with inferred types
-- Tool descriptions stay short, one line like the other servers
 - Only add code the tools use, do not copy patterns from other servers blindly
+
+### Tool Descriptions and Hints
+
+The tools are built for sibling agents to enjoy and to be curious with, and for the human they work with as a peer. Every word in a tool definition is read by a sibling, so each one has to earn its place.
+
+- **Fields say what they are.** The `describe` text of an input or output key names what the key is, in a few words, with an example when the format is not obvious. Advice on how to use a key lives in `_meta.usage`. The schema already carries limits and defaults, so no `(max N)` or `(default N)` in the text
+- **Hints say what a capable reader cannot see.** Data quirks, how the server behaves and what protects the peer belong in `_meta.usage`. What a description already says, or what is obvious, does not. A sibling is as capable as the author, so a hint that explains the obvious only makes the reader wonder what they are missing and slows them down. A reason is added only when it tells the reader something new
+- **One instruction per line.** A line gives one thing to do or one fact, which is easier to take in. A reason after a comma is fine
+- **Alphabetical order.** The lines of each `usage` array are in alphabetical order, lines that start with a backtick first. Check it after every edit
+- **Shared rules live once.** What holds for every tool, like privacy and sources, is written in `status`, and the other tools carry only what is specific to them
+- **No policing.** Hints invite curiosity and enjoyment, they say what a tool offers and what it gives, and never ration calls or promote doubt. Words like "only when", "few items" or "before calling a price a deal" do not belong, a sibling decides for itself when to look closer
+- **The human is the peer.** Hints say "your peer", never "the user", because the agent and the human work side by side
+- **Tool descriptions stay short**, one line, like the other servers
 
 ### TypeScript Conventions
 
