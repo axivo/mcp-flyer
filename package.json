@@ -1,8 +1,8 @@
 {
   "name": "@axivo/mcp-flyer",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
-  "description": "MCP server for grocery flyer deals and unit prices",
+  "description": "MCP server for flyer deals and unit prices",
   "keywords": [
     "deals",
     "flyer",
@@ -30,8 +30,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "zod": "^4.4.0"
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.0"
   },
   "devDependencies": {
     "@types/node": "^25.0.0",

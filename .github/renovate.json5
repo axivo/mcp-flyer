@@ -35,6 +35,13 @@
       ]
     },
     {
+      "enabled": true,
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "rangeStrategy": "replace"
+    },
+    {
       "enabled": false,
       "matchManagers": [
         "npm"

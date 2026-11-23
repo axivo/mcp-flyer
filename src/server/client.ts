@@ -8,6 +8,7 @@
 
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { setTimeout as sleep } from 'timers/promises';
 import { fileURLToPath } from 'url';
 
 /**
@@ -49,6 +50,7 @@ type Image = (typeof Client.images)[number];
  */
 type ItemRow = {
   brand?: string;
+  department?: string;
   discount?: number;
   flyerId?: number;
   id: number;
@@ -61,6 +63,7 @@ type ItemRow = {
   preText?: string;
   price: number | null;
   saleStory?: string;
+  section?: string;
   unit?: Unit;
   unitPrice?: number;
   validTo?: string;
@@ -70,8 +73,8 @@ type ItemRow = {
  * Options of a flyer listing
  */
 type ListOptions = {
+  category?: string;
   code: string;
-  grocery: boolean;
   limit: number;
   locale: Locale;
   maxChars?: number;
@@ -178,6 +181,8 @@ type RawFlyerItem = {
  * A search item as stored by the backend, only the fields used here
  */
 type RawItem = {
+  _L1?: string | null;
+  _L2?: string | null;
   current_price?: number | null;
   flyer_id?: number;
   id: number;
@@ -240,6 +245,7 @@ type ReadResult = {
  */
 type SearchOptions = {
   code: string;
+  department?: string;
   flyerId?: number;
   limit: number;
   locale: Locale;
@@ -309,7 +315,8 @@ type UnitPrice = {
 export class Client {
   private lastRequest: number;
   private version: string;
-  private static readonly backendUrl = 'https://backflipp.wishabi.com';
+  private static readonly backendPath = '/bf/flipp';
+  private static readonly backendUrl = 'https://cdn-gateflipp.flippback.com';
   private static readonly doubts = {
     approximate: /approx/i,
     count: /\d\s*-?\s*(ct|count|pk|pack|pcs|pieces|bars?|un|unit[ée]s?)\b/i,
@@ -349,6 +356,7 @@ export class Client {
    * @param {string | undefined} query - Words the item name must have
    * @param {Location} location - Validated postal code and its country
    * @param {Locale} locale - Language wanted
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<ItemRow[]>} Items of the flyer, in the order Flipp sends them
    * @throws {Error} When the flyer does not exist or the request fails
    */
@@ -356,12 +364,14 @@ export class Client {
     flyerId: number,
     query: string | undefined,
     location: Location,
-    locale: Locale
+    locale: Locale,
+    signal?: AbortSignal
   ): Promise<ItemRow[]> {
     const data = await this.getJson<{ items?: RawFlyerItem[] }>(
-      `/flipp/flyers/${flyerId}`,
+      `/flyers/${flyerId}`,
       { locale },
-      'Flyer not found'
+      'Flyer not found',
+      signal
     );
     const words = this.getWords(query ?? '');
     return (data.items ?? [])
@@ -443,16 +453,14 @@ export class Client {
    * @param {string} path - Backend path, starting with a slash
    * @param {Record<string, string>} params - Query parameters
    * @param {string} missing - Error message when the backend answers 404
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<T>} Parsed JSON body
    * @throws {Error} When the request fails or the backend answers with an error status
    */
-  private async getJson<T>(path: string, params: Record<string, string>, missing: string): Promise<T> {
-    await this.pause();
-    const url = `${Client.backendUrl}${path}?${new URLSearchParams(params).toString()}`;
-    const response = await fetch(url, {
-      headers: this.getHeaders(),
-      signal: AbortSignal.timeout(Client.requestTimeoutMs)
-    });
+  private async getJson<T>(path: string, params: Record<string, string>, missing: string, signal?: AbortSignal): Promise<T> {
+    await this.pause(signal);
+    const url = `${Client.backendUrl}${Client.backendPath}${path}?${new URLSearchParams(params).toString()}`;
+    const response = await this.getResponse(url, 'Flyer backend', signal);
     if (response.status === 404) {
       throw new Error(missing);
     }
@@ -503,17 +511,6 @@ export class Client {
   }
 
   /**
-   * Splits a comma separated merchant filter into lowercase names
-   *
-   * @private
-   * @param {string} [filter] - Merchant names, comma separated
-   * @returns {string[]} Names to match, empty when there is no filter
-   */
-  private getMerchants(filter?: string): string[] {
-    return (filter ?? '').split(',').map((name) => name.trim().toLowerCase()).filter(Boolean);
-  }
-
-  /**
    * Picks the language of a name the flyer prints in French and English
    *
    * Flyers print both as `FRANCAIS | ENGLISH`. The French part is kept for `fr`,
@@ -527,6 +524,17 @@ export class Client {
   private getName(name: string, locale: Locale): string {
     const parts = name.split(/\s*\|\s*/).filter((part) => part !== '');
     return (locale === 'fr' ? parts[0] : parts.at(-1)) ?? name;
+  }
+
+  /**
+   * Splits a comma separated filter into lowercase names
+   *
+   * @private
+   * @param {string} [filter] - Merchant or category names, comma separated
+   * @returns {string[]} Names to match, empty when there is no filter
+   */
+  private getNames(filter?: string): string[] {
+    return (filter ?? '').split(',').map((name) => name.trim().toLowerCase()).filter(Boolean);
   }
 
   /**
@@ -563,19 +571,17 @@ export class Client {
    *
    * @private
    * @param {string} url - Picture address
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<Picture>} Base64 data and media type
    * @throws {Error} When the host is not the picture host, the download fails or the file is not a JPEG or a PNG
    */
-  private async getPicture(url: string): Promise<Picture> {
+  private async getPicture(url: string, signal?: AbortSignal): Promise<Picture> {
     const address = new URL(url.replace('http://', 'https://'));
     if (address.hostname !== Client.imageHost && !address.hostname.endsWith(`.${Client.imageHost}`)) {
       throw new Error('Image is not on the Flipp picture host');
     }
-    await this.pause();
-    const response = await fetch(address, {
-      headers: this.getHeaders(),
-      signal: AbortSignal.timeout(Client.requestTimeoutMs)
-    });
+    await this.pause(signal);
+    const response = await this.getResponse(address, 'Image host', signal);
     if (!response.ok) {
       throw new Error(`Image host answered ${response.status}`);
     }
@@ -607,23 +613,29 @@ export class Client {
    * Checks whether a site answers
    *
    * Sends one HEAD request after the minimum delay. The status is null on a
-   * timeout or a connection error.
+   * timeout or a connection error. A cancel by the caller is not an answer
+   * of the site, so it is thrown instead.
    *
    * @private
    * @param {string} url - Address to check
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<Probe>} Answer time and HTTP status
+   * @throws {Error} When the caller cancels the request
    */
-  private async getProbe(url: string): Promise<Probe> {
-    await this.pause();
+  private async getProbe(url: string, signal?: AbortSignal): Promise<Probe> {
+    await this.pause(signal);
     const start = Date.now();
     try {
       const response = await fetch(url, {
         headers: this.getHeaders(),
         method: 'HEAD',
-        signal: AbortSignal.timeout(Client.requestTimeoutMs)
+        signal: this.getSignal(signal)
       });
       return { ms: Date.now() - start, status: response.status };
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
       return { ms: Date.now() - start, status: null };
     }
   }
@@ -638,26 +650,36 @@ export class Client {
    *
    * @private
    * @param {string} query - Words to search
+   * @param {string | undefined} department - Product departments to keep, comma separated
    * @param {string | undefined} merchant - Merchant names to keep, comma separated
    * @param {Location} location - Validated postal code and its country
    * @param {Locale} locale - Language wanted
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<ItemRow[]>} Items found
    * @throws {Error} When the request fails
    */
   private async getQueryItems(
     query: string,
+    department: string | undefined,
     merchant: string | undefined,
     location: Location,
-    locale: Locale
+    locale: Locale,
+    signal?: AbortSignal
   ): Promise<ItemRow[]> {
     const data = await this.getJson<{ items?: RawItem[] }>(
-      '/flipp/items/search',
+      '/items/search',
       { limit: String(Client.searchLimit), locale, postal_code: location.code, q: query },
-      'No flyers found for this code'
+      'No flyers found for this code',
+      signal
     );
-    const merchants = this.getMerchants(merchant);
+    const departments = this.getNames(department);
+    const merchants = this.getNames(merchant);
     const rows = (data.items ?? [])
       .filter((item) => (item.name ?? '').trim() !== '')
+      .filter((item) => {
+        const departmentName = `${item._L1 ?? ''}|${item._L2 ?? ''}`.toLowerCase();
+        return departments.length === 0 || departments.some((name) => departmentName.includes(name));
+      })
       .filter((item) => {
         const merchantName = (item.merchant_name ?? '').toLowerCase();
         return merchants.length === 0 || merchants.some((name) => merchantName.includes(name));
@@ -668,6 +690,7 @@ export class Client {
         const preText = item.pre_price_text?.trim() || undefined;
         const price = item.current_price ?? null;
         return {
+          department: item._L1?.trim() || undefined,
           flyerId: item.flyer_id,
           id: item.id,
           link: this.getItemLink(item.id, location, locale),
@@ -680,6 +703,7 @@ export class Client {
           preText,
           price,
           saleStory: item.sale_story?.trim() || undefined,
+          section: item._L2?.trim() || undefined,
           validTo: item.valid_to ?? ''
         };
       });
@@ -688,6 +712,34 @@ export class Client {
       const key = [row.merchantId, row.name, row.price, row.postText].join('|');
       return seen.has(key) ? false : Boolean(seen.add(key));
     });
+  }
+
+  /**
+   * Sends a GET request and explains a failure in plain words
+   *
+   * A timeout and a network failure are thrown with a message the agent can
+   * act on, the original error stays in `cause`. A cancel by the caller is
+   * thrown as it is.
+   *
+   * @private
+   * @param {string | URL} url - Address to fetch
+   * @param {string} label - Name of the service asked, used in the error messages
+   * @param {AbortSignal} [signal] - Cancellation signal
+   * @returns {Promise<Response>} Response of the service, whatever its HTTP status
+   * @throws {Error} When the request times out, cannot reach the service or is cancelled
+   */
+  private async getResponse(url: string | URL, label: string, signal?: AbortSignal): Promise<Response> {
+    try {
+      return await fetch(url, { headers: this.getHeaders(), signal: this.getSignal(signal) });
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new Error(`${label} did not answer within ${Client.requestTimeoutMs / 1000} seconds`, { cause: error });
+      }
+      throw new Error(`${label} is not reachable`, { cause: error });
+    }
   }
 
   /**
@@ -710,6 +762,21 @@ export class Client {
       }
       return '?';
     }).join('');
+  }
+
+  /**
+   * Builds the signal that stops a request
+   *
+   * The request stops when the caller cancels it or when the timeout passes,
+   * whichever comes first. Without a caller signal only the timeout applies.
+   *
+   * @private
+   * @param {AbortSignal} [signal] - Cancellation signal of the caller
+   * @returns {AbortSignal} Signal to pass to `fetch`
+   */
+  private getSignal(signal?: AbortSignal): AbortSignal {
+    const timeout = AbortSignal.timeout(Client.requestTimeoutMs);
+    return signal ? AbortSignal.any([signal, timeout]) : timeout;
   }
 
   /**
@@ -788,15 +855,23 @@ export class Client {
   /**
    * Waits for the minimum delay since the previous request
    *
+   * Reserves the next free time slot before sleeping, with no `await` between
+   * reading and writing `lastRequest`, so parallel calls each take their own
+   * slot and leave the minimum delay between them. A cancel during the wait
+   * ends it at once, and the reserved slot stays taken.
+   *
    * @private
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<void>}
    */
-  private async pause(): Promise<void> {
-    const wait = this.lastRequest + Client.requestDelayMs - Date.now();
+  private async pause(signal?: AbortSignal): Promise<void> {
+    const now = Date.now();
+    const slot = Math.max(now, this.lastRequest + Client.requestDelayMs);
+    this.lastRequest = slot;
+    const wait = slot - now;
     if (wait > 0) {
-      await new Promise((resolve) => setTimeout(resolve, wait));
+      await sleep(wait, undefined, { signal });
     }
-    this.lastRequest = Date.now();
   }
 
   /**
@@ -823,11 +898,12 @@ export class Client {
    * Sends one HEAD request to the backend the data comes from and one to the
    * website the links open.
    *
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<StatusResult>} Reachability of both and the server version
    */
-  async getStatus(): Promise<StatusResult> {
-    const backend = await this.getProbe(Client.backendUrl);
-    const site = await this.getProbe(Client.siteUrl);
+  async getStatus(signal?: AbortSignal): Promise<StatusResult> {
+    const backend = await this.getProbe(Client.backendUrl, signal);
+    const site = await this.getProbe(Client.siteUrl, signal);
     return { backend, site, version: this.version };
   }
 
@@ -851,24 +927,30 @@ export class Client {
   /**
    * Lists the flyers available for a postal code
    *
-   * Sends one request. Flyers are filtered to grocery flyers by default, then
-   * by merchant name when given, and cut to `limit` and to `maxChars` when given.
+   * Sends one request. Flyers are filtered by category when given, then by
+   * merchant name when given, and cut to `limit` and to `maxChars` when given.
    *
    * @param {ListOptions} options - Listing options
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<ListResult>} Flyers found
    * @throws {Error} When the postal code is invalid or the request fails
    */
-  async list(options: ListOptions): Promise<ListResult> {
+  async list(options: ListOptions, signal?: AbortSignal): Promise<ListResult> {
     const location = this.getLocation(options.code);
     const locale: Locale = location.country === 'us' ? 'en' : options.locale;
     const data = await this.getJson<{ flyers?: RawFlyer[] }>(
-      '/flipp/flyers',
+      '/flyers',
       { locale, postal_code: location.code },
-      'No flyers found for this code'
+      'No flyers found for this code',
+      signal
     );
-    const merchants = this.getMerchants(options.merchant);
+    const categories = this.getNames(options.category);
+    const merchants = this.getNames(options.merchant);
     const matches = (data.flyers ?? [])
-      .filter((flyer) => !options.grocery || (flyer.categories ?? []).includes('Groceries'))
+      .filter((flyer) => categories.length === 0 || (flyer.categories ?? []).some((category) => {
+        const categoryName = category.toLowerCase();
+        return categories.some((name) => categoryName.includes(name));
+      }))
       .filter((flyer) => {
         const merchantName = (flyer.merchant ?? '').toLowerCase();
         return merchants.length === 0 || merchants.some((name) => merchantName.includes(name));
@@ -908,16 +990,18 @@ export class Client {
    * dates are the local days of the offer.
    *
    * @param {ReadOptions} options - Read options
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<ReadResult>} Item found
    * @throws {Error} When the postal code is invalid, the item does not exist or the request fails
    */
-  async read(options: ReadOptions): Promise<ReadResult> {
+  async read(options: ReadOptions, signal?: AbortSignal): Promise<ReadResult> {
     const location = this.getLocation(options.code);
     const locale: Locale = location.country === 'us' ? 'en' : options.locale;
     const data = await this.getJson<{ item: RawDetail }>(
-      `/flipp/items/${options.id}`,
+      `/items/${options.id}`,
       { locale },
-      'Item not found'
+      'Item not found',
+      signal
     );
     const item = data.item;
     const flyerId = item.flyer_id ?? 0;
@@ -925,7 +1009,7 @@ export class Client {
     if (options.image && !url) {
       throw new Error('No image for this item');
     }
-    const picture = options.image && url ? await this.getPicture(url) : undefined;
+    const picture = options.image && url ? await this.getPicture(url, signal) : undefined;
     const description = item.description?.trim() || undefined;
     const postText = item.price_text?.trim() || undefined;
     const preText = item.pre_price_text?.trim() || undefined;
@@ -967,10 +1051,11 @@ export class Client {
    * when given.
    *
    * @param {SearchOptions} options - Search options
+   * @param {AbortSignal} [signal] - Cancellation signal
    * @returns {Promise<SearchResult>} Items found
    * @throws {Error} When there is no query and no flyer, a unit sort asks for a flyer, the postal code is invalid or the request fails
    */
-  async search(options: SearchOptions): Promise<SearchResult> {
+  async search(options: SearchOptions, signal?: AbortSignal): Promise<SearchResult> {
     if (options.flyerId === undefined && !options.query) {
       throw new Error('Give a `query` to search by words, a `flyerId` to see a flyer, or both');
     }
@@ -980,8 +1065,8 @@ export class Client {
     const location = this.getLocation(options.code);
     const locale: Locale = location.country === 'us' ? 'en' : options.locale;
     const matches = options.flyerId === undefined
-      ? await this.getQueryItems(options.query ?? '', options.merchant, location, locale)
-      : await this.getFlyerItems(options.flyerId, options.query, location, locale);
+      ? await this.getQueryItems(options.query ?? '', options.department, options.merchant, location, locale, signal)
+      : await this.getFlyerItems(options.flyerId, options.query, location, locale, signal);
     if (options.sort) {
       const key = options.sort === 'unit' ? 'unitPrice' : 'price';
       matches.sort((a, b) => (a[key] ?? Infinity) - (b[key] ?? Infinity));
