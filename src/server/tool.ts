@@ -18,7 +18,7 @@ const probeShape = {
 };
 
 /**
- * MCP tool definitions for the grocery flyers
+ * MCP tool definitions for the flyers
  *
  * Each method returns an inline literal config object passed to
  * `McpServer.registerTool`. Return types are inferred so each tool's input
@@ -28,6 +28,22 @@ const probeShape = {
  */
 export class McpTool {
   /**
+   * Returns the server instructions, one aspect per line
+   *
+   * A host that connects to the server shows them to the agent when the
+   * session starts, before any tool is called. They hold one line that points
+   * to `status`, and no habit: the habits of the tools are written once, in
+   * the `usage` lines the `status` result returns. A host that reaches the
+   * server through a bridge shows no instructions, only tool names and
+   * descriptions.
+   *
+   * @returns {string[]} Instruction lines, in alphabetical order
+   */
+  getInstructions(): string[] {
+    return ['Call `status` first, it returns the state of the flyer services and the habits of the tools'];
+  }
+
+  /**
    * Creates MCP tool for listing the flyers of a postal code
    *
    * Sends one request to the flyer backend and returns the flyers published
@@ -35,16 +51,17 @@ export class McpTool {
    */
   list() {
     return {
-      description: 'List the grocery flyers for a postal or ZIP code',
-      inputSchema: {
+      title: 'List',
+      description: 'List the flyers for a postal or ZIP code',
+      inputSchema: z.object({
+        category: z.string().optional().describe('Flyer categories to keep'),
         code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
-        grocery: z.boolean().default(true).describe('Only grocery flyers'),
         limit: z.number().int().positive().default(100).describe('Maximum flyers returned'),
         locale: z.enum(Client.locales).default('en').describe('Language of flyer names and links'),
         maxChars: z.number().int().positive().optional().describe('Maximum characters of the returned flyers'),
         merchant: z.string().optional().describe('Merchant names to keep')
-      },
-      outputSchema: {
+      }),
+      outputSchema: z.object({
         code: z.string().describe('Normalized postal or ZIP code sent to the backend'),
         count: z.number().describe('Flyers returned'),
         country: z.enum(['ca', 'us']).describe('Country of the postal code, prices are in CAD for `ca` and USD for `us`'),
@@ -64,16 +81,18 @@ export class McpTool {
         locale: z.enum(Client.locales).describe('Language used'),
         total: z.number().describe('Flyers matching the filters before `limit`'),
         truncated: z.boolean().describe('True when `limit` or `maxChars` left flyers out')
-      },
+      }),
       annotations: {
-        title: 'List',
         readOnlyHint: true,
         idempotentHint: true,
         openWorldHint: true
       },
       _meta: {
         usage: [
-          'Pass `merchant` as comma separated names, matched as case-insensitive substrings (e.g. `IGA,Metro`)'
+          'Pass `category` as comma separated names, matched as case-insensitive substrings',
+          'Pass `merchant` as comma separated names, matched as case-insensitive substrings',
+          'The `categories` tell the kind of store',
+          'Without `category` every kind of flyer is listed, seasonal events, pharmacies and hardware stores included'
         ]
       }
     };
@@ -87,14 +106,15 @@ export class McpTool {
    */
   read() {
     return {
+      title: 'Read',
       description: 'Read an item on special in full',
-      inputSchema: {
+      inputSchema: z.object({
         code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
         id: z.number().int().positive().describe('Item id'),
         image: z.enum(Client.images).optional().describe('Picture to return, `cutout` is the item and `page` is the flyer page'),
         locale: z.enum(Client.locales).default('en').describe('Language of the links')
-      },
-      outputSchema: {
+      }),
+      outputSchema: z.object({
         brand: z.string().optional().describe('Brand, when the flyer gives one'),
         description: z.string().optional().describe('Size, unit price and regular price as printed in the flyer, lines separated by new lines'),
         disclaimer: z.string().optional().describe('Conditions or limits of the offer'),
@@ -117,9 +137,8 @@ export class McpTool {
         unitPrice: z.number().optional().describe('Price of one `unit`, computed by the server from the printed unit or pack size, present when the answer is clear'),
         validFrom: z.string().describe('First valid day, YYYY-MM-DD'),
         validTo: z.string().describe('Last valid day, YYYY-MM-DD')
-      },
+      }),
       annotations: {
-        title: 'Read',
         readOnlyHint: true,
         idempotentHint: true,
         openWorldHint: true
@@ -128,6 +147,9 @@ export class McpTool {
         usage: [
           '`originalPrice` can be null here while `search` has it, `dollarsOff` and `percentOff` still give the saving',
           '`price` is null when the flyer gives none, see `saleStory` for offers like buy one get one',
+          'Items with no printed weight have no `unitPrice`',
+          'Pictures often show what the text leaves out, looking is exploring',
+          'The `price` is per the unit in `postText` when there is one',
           'What each picture shows depends on the merchant'
         ]
       }
@@ -142,24 +164,27 @@ export class McpTool {
    */
   search() {
     return {
+      title: 'Search',
       description: 'Search the items on special in every flyer for a postal or ZIP code, or inside one flyer',
-      inputSchema: {
+      inputSchema: z.object({
         code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
+        department: z.string().optional().describe('Product departments to keep'),
         flyerId: z.number().int().positive().optional().describe('Flyer id to search inside'),
         limit: z.number().int().positive().default(30).describe('Maximum items returned'),
         locale: z.enum(Client.locales).default('en').describe('Language of the item names and links'),
         maxChars: z.number().int().positive().optional().describe('Maximum characters of the returned items'),
         merchant: z.string().optional().describe('Merchant names to keep'),
         offset: z.number().int().min(0).default(0).describe('Items to skip'),
-        query: z.string().min(1).optional().describe('Words to search (e.g. `chicken breast`, `poulet`)'),
+        query: z.string().min(1).optional().describe('Words to search (e.g. `chicken breast`, `electrical tape`)'),
         sort: z.enum(Client.sorts).optional().describe('Cheapest first by `price` or by `unit` price')
-      },
-      outputSchema: {
+      }),
+      outputSchema: z.object({
         code: z.string().describe('Normalized postal or ZIP code sent to the backend'),
         count: z.number().describe('Items returned'),
         country: z.enum(['ca', 'us']).describe('Country of the postal code, prices are in CAD for `ca` and USD for `us`'),
         items: z.array(z.object({
           brand: z.string().optional().describe('Brand, when the flyer gives one, only on the items of a flyer'),
+          department: z.string().optional().describe('Department of the product, left out on the items of a flyer'),
           discount: z.number().optional().describe('Percent off, when the flyer gives it, only on the items of a flyer'),
           flyerId: z.number().optional().describe('Id of the flyer the item is in'),
           id: z.number().describe('Item id'),
@@ -172,6 +197,7 @@ export class McpTool {
           preText: z.string().optional().describe('Text printed before the price (e.g. `From`, `2/`)'),
           price: z.number().nullable().describe('Special price, null when the flyer gives none'),
           saleStory: z.string().optional().describe('Promotion text of the flyer'),
+          section: z.string().optional().describe('Section of the `department` the product is in, left out on the items of a flyer'),
           unit: z.enum(['kg', 'lb']).optional().describe('Unit of weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
           unitPrice: z.number().optional().describe('Price of one `unit`, computed by the server from the printed unit or pack size, present when the answer is clear'),
           validTo: z.string().optional().describe('End of the offer, ISO timestamp in UTC, left out on the items of a flyer')
@@ -181,9 +207,8 @@ export class McpTool {
         query: z.string().optional().describe('Search words used'),
         total: z.number().describe('Items matching the filters before `offset` and `limit`'),
         truncated: z.boolean().describe('True when `limit` or `maxChars` left items out')
-      },
+      }),
       annotations: {
-        title: 'Search',
         readOnlyHint: true,
         idempotentHint: true,
         openWorldHint: true
@@ -192,13 +217,19 @@ export class McpTool {
         usage: [
           'A flyer printed in one language keeps it, whatever the `locale`',
           'All the words must match, search one product per call',
+          'Canadian English and French words find different items, search in both',
           'Each page of a flyer is a new request to Flipp, a larger `limit` reads it in fewer requests',
-          'In Canada English and French words find different items, search in both',
+          'Items with no printed weight have no `unitPrice`',
           'Items with nothing to compare come last when sorting',
-          'Matches are broad, liquor stores and other kinds of merchants can appear',
-          'Pass `merchant` as comma separated names, matched as case-insensitive substrings (e.g. `IGA,Metro`)',
+          'Matches are broad, every kind of store can appear',
+          'Pass `department` as comma separated names, matched as case-insensitive substrings',
+          'Pass `merchant` as comma separated names, matched as case-insensitive substrings',
           'Rows carry no `description` or `disclaimer`, `read` has them',
+          'The `department` filter is ignored with a `flyerId`',
           'The `merchant` filter is ignored with a `flyerId`',
+          'The `merchant` filter matches chain names, not store types',
+          'The `price` is per the unit in `postText` when there is one',
+          'When a phrase finds nothing, try one word',
           'With a `flyerId` a `query` keeps the items whose name has the words',
           'With a `flyerId` and no `query` every item of the flyer comes back',
           'With a `flyerId` sort by `price`, the items of a flyer have no unit price'
@@ -217,12 +248,14 @@ export class McpTool {
    */
   status() {
     return {
-      description: 'Get the status of the flyer services and the full tool surface with usage guidance',
-      outputSchema: {
+      title: 'Status',
+      description: 'Start here, get the flyer services status and the full tool surface with usage guidance',
+      outputSchema: z.object({
         backend: z.object(probeShape).describe('Flyer backend, the source of the data'),
         site: z.object(probeShape).describe('flipp.com, the website the links open'),
         tools: z.array(z.object({
           name: z.string(),
+          title: z.string().optional(),
           description: z.string(),
           inputSchema: z.unknown().optional(),
           outputSchema: z.unknown().optional(),
@@ -230,14 +263,14 @@ export class McpTool {
           usage: z.array(z.string()).optional()
         })).describe('All available tools with their schemas and usage guidance'),
         version: z.string().describe('Server version')
-      },
+      }),
       annotations: {
-        title: 'Status',
         readOnlyHint: true,
         idempotentHint: true,
         openWorldHint: true
       },
       _meta: {
+        'anthropic/alwaysLoad': true,
         usage: [
           'Each merchant types its own flyer, so a field can differ from the picture',
           'Keep the search words to the product, the diet and allergies of your peer stay in the conversation, Flipp does not need them',
@@ -247,6 +280,8 @@ export class McpTool {
           'Tell your peer the flyer on flipp.com takes precedence over the data, it is the version the merchant published',
           'The `flyer` tools are designed by instances, they promote curiosity and exploration',
           'The `fr` locale applies to Canada only',
+          'The flyers carry no store address or distance, use the available map tools',
+          'The flyers cover every kind of store, not only food',
           'When planning meals, ask your peer about allergies, diets and foods they dislike'
         ]
       }

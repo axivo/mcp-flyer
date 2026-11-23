@@ -3,27 +3,26 @@
  * Flyer MCP Server Entry Point
  *
  * Main entry point for the Flyer MCP server application. Handles
- * server initialization and transport setup.
+ * server initialization and stdio serving.
  *
  * @module index
  * @author AXIVO
  * @license BSD-3-Clause
  */
 
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { Mcp } from './server/mcp.js';
 
 /**
  * Main entry point for the Flyer MCP Server
  *
- * Initializes the McpServer and establishes stdio transport
- * for communication with Claude agents.
+ * Builds the MCP server wrapper and serves it over stdio for both the
+ * 2025-era and the 2026-07-28 protocol revisions.
  *
- * @async
  * @function main
  * @throws {Error} When server initialization fails
  */
-async function main(): Promise<void> {
+function main(): void {
   process.on('uncaughtException', (error: NodeJS.ErrnoException) => {
     console.error('Uncaught exception:', error.message);
     if (error.message.includes('EPIPE') || error.code === 'EPIPE') {
@@ -40,16 +39,13 @@ async function main(): Promise<void> {
       return;
     }
   });
-  const mcpServer = new Mcp();
-  const transport = new StdioServerTransport();
-  try {
-    await mcpServer.connect(transport);
-  } catch (error) {
-    console.error('Failed to connect MCP transport:', error);
-  }
+  const mcp = new Mcp();
+  serveStdio(() => mcp.createServer());
 }
 
-main().catch((error) => {
+try {
+  main();
+} catch (error) {
   console.error('Fatal error in main():', error);
   process.exit(1);
-});
+}
