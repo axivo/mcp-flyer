@@ -29,13 +29,6 @@
   ],
   "packageRules": [
     {
-      "enabled": false,
-      "matchFileNames": [
-        "package-lock.json"
-      ]
-    },
-    {
-      "enabled": true,
       "matchDepNames": [
         "node"
       ],
@@ -49,6 +42,12 @@
       "matchUpdateTypes": [
         "minor",
         "patch"
+      ]
+    },
+    {
+      "enabled": false,
+      "matchFileNames": [
+        "package-lock.json"
       ]
     },
     {
