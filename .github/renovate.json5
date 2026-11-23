@@ -36,19 +36,10 @@
     },
     {
       "enabled": true,
-      "matchManagers": [
-        "custom.regex"
+      "matchDepNames": [
+        "node"
       ],
       "rangeStrategy": "replace"
-    },
-    {
-      "enabled": false,
-      "matchManagers": [
-        "npm"
-      ],
-      "matchUpdateTypes": [
-        "patch"
-      ]
     },
     {
       "enabled": false,
@@ -57,6 +48,15 @@
       ],
       "matchUpdateTypes": [
         "minor",
+        "patch"
+      ]
+    },
+    {
+      "enabled": false,
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
         "patch"
       ]
     }
