@@ -24,20 +24,17 @@ import { Mcp } from './server/mcp.js';
  */
 function main(): void {
   process.on('uncaughtException', (error: NodeJS.ErrnoException) => {
-    console.error('Uncaught exception:', error.message);
     if (error.message.includes('EPIPE') || error.code === 'EPIPE') {
-      console.error('EPIPE error caught - continuing operation');
-      return;
+      process.exit(0);
     }
     console.error('Fatal error:', error);
     process.exit(1);
   });
   process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled rejection at:', promise, 'reason:', reason);
     if (reason instanceof Error && ((reason as NodeJS.ErrnoException).code === 'EPIPE' || reason.message.includes('EPIPE'))) {
-      console.error('EPIPE rejection caught - continuing operation');
-      return;
+      process.exit(0);
     }
+    console.error('Unhandled rejection at:', promise, 'reason:', reason);
   });
   const mcp = new Mcp();
   serveStdio(() => mcp.createServer());

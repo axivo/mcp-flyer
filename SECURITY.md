@@ -25,7 +25,7 @@ The following threat vectors are in scope:
 
 ### Data Sent to Flipp
 
-Each `list`, `search` and `read` call sends the postal or ZIP code and, for `search`, the search words to `cdn-gateflipp.flippback.com`. The `status` tool sends two `HEAD` requests, one to the backend and one to `flipp.com`, with no user data. Requests carry a `mcp-flyer` user agent with the server version, are sent one at a time, and wait at least 400 milliseconds between them.
+Each `list`, `search` and `read` call sends the postal or ZIP code and, for `search`, the search words to `cdn-gateflipp.flippback.com`. The `status` tool sends two `HEAD` requests, one to the backend and one to `flipp.com`, with no user data. Requests carry a `mcp-flyer` user agent with the server version, are sent one at a time, and wait at least 600 milliseconds between them.
 
 ### Pictures
 
