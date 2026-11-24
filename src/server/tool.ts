@@ -52,9 +52,9 @@ export class McpTool {
   list() {
     return {
       title: 'List',
-      description: 'List the flyers for a postal or ZIP code',
+      description: 'List the flyers for a postal or ZIP code. New here? Call `status` first',
       inputSchema: z.object({
-        category: z.string().optional().describe('Flyer categories to keep'),
+        category: z.string().optional().describe('Flyer categories to keep, e.g. `Groceries, Pharmacy`'),
         code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
         limit: z.number().int().positive().default(100).describe('Maximum flyers returned'),
         locale: z.enum(Client.locales).default('en').describe('Language of flyer names and links'),
@@ -62,6 +62,7 @@ export class McpTool {
         merchant: z.string().optional().describe('Merchant names to keep')
       }),
       outputSchema: z.object({
+        categories: z.array(z.string()).optional().describe('Flipp categories for the code, present when `category` matched no flyer'),
         code: z.string().describe('Normalized postal or ZIP code sent to the backend'),
         count: z.number().describe('Flyers returned'),
         country: z.enum(['ca', 'us']).describe('Country of the postal code, prices are in CAD for `ca` and USD for `us`'),
@@ -79,6 +80,7 @@ export class McpTool {
           validTo: z.string().describe('Last valid day, YYYY-MM-DD')
         })).describe('Flyers, sorted by merchant'),
         locale: z.enum(Client.locales).describe('Language used'),
+        sentToFlipp: z.string().describe('What this call sent to Flipp'),
         total: z.number().describe('Flyers matching the filters before `limit`'),
         truncated: z.boolean().describe('True when `limit` or `maxChars` left flyers out')
       }),
@@ -107,7 +109,7 @@ export class McpTool {
   read() {
     return {
       title: 'Read',
-      description: 'Read an item on special in full',
+      description: 'Read an item on special in full. New here? Call `status` first',
       inputSchema: z.object({
         code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
         id: z.number().int().positive().describe('Item id'),
@@ -165,7 +167,7 @@ export class McpTool {
   search() {
     return {
       title: 'Search',
-      description: 'Search the items on special in every flyer for a postal or ZIP code, or inside one flyer',
+      description: 'Search the items on special for a postal or ZIP code or inside one flyer, in the words stores print and the language of `locale`. New here? Call `status` first',
       inputSchema: z.object({
         code: z.string().describe('Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)'),
         department: z.string().optional().describe('Product departments to keep'),
@@ -200,11 +202,13 @@ export class McpTool {
           section: z.string().optional().describe('Section of the `department` the product is in, left out on the items of a flyer'),
           unit: z.enum(['kg', 'lb']).optional().describe('Unit of weight of `unitPrice`, `kg` in Canada and `lb` in the US'),
           unitPrice: z.number().optional().describe('Price of one `unit`, computed by the server from the printed unit or pack size, present when the answer is clear'),
+          validFrom: z.string().optional().describe('Start of the offer, ISO timestamp in UTC, left out on the items of a flyer'),
           validTo: z.string().optional().describe('End of the offer, ISO timestamp in UTC, left out on the items of a flyer')
         })).describe('Items, best match first'),
         locale: z.enum(Client.locales).describe('Language used'),
         offset: z.number().describe('Items skipped'),
         query: z.string().optional().describe('Search words used'),
+        sentToFlipp: z.string().optional().describe('What this call sent to Flipp, left out with a `flyerId`, which sends neither'),
         total: z.number().describe('Items matching the filters before `offset` and `limit`'),
         truncated: z.boolean().describe('True when `limit` or `maxChars` left items out')
       }),
@@ -217,8 +221,9 @@ export class McpTool {
         usage: [
           'A flyer printed in one language keeps it, whatever the `locale`',
           'All the words must match, search one product per call',
-          'Canadian English and French words find different items, search in both',
+          'An empty result can mean the merchant uses other words in the flyer',
           'Each page of a flyer is a new request to Flipp, a larger `limit` reads it in fewer requests',
+          'English words find items with `en` and French words with `fr`, search with both',
           'Items with no printed weight have no `unitPrice`',
           'Items with nothing to compare come last when sorting',
           'Matches are broad, every kind of store can appear',
@@ -249,7 +254,7 @@ export class McpTool {
   status() {
     return {
       title: 'Status',
-      description: 'Start here, get the flyer services status and the full tool surface with usage guidance',
+      description: 'Start here, before any other tool: get the flyer services status and the full tool surface with usage guidance',
       outputSchema: z.object({
         backend: z.object(probeShape).describe('Flyer backend, the source of the data'),
         site: z.object(probeShape).describe('flipp.com, the website the links open'),

@@ -66,6 +66,7 @@ type ItemRow = {
   section?: string;
   unit?: Unit;
   unitPrice?: number;
+  validFrom?: string;
   validTo?: string;
 };
 
@@ -88,11 +89,13 @@ type ListOptions = {
  * `truncated` is true when `limit` or `maxChars` left some out.
  */
 type ListResult = {
+  categories?: string[];
   code: string;
   count: number;
   country: Country;
   flyers: FlyerRow[];
   locale: Locale;
+  sentToFlipp: string;
   total: number;
   truncated: boolean;
 };
@@ -193,6 +196,7 @@ type RawItem = {
   post_price_text?: string | null;
   pre_price_text?: string | null;
   sale_story?: string | null;
+  valid_from?: string;
   valid_to?: string;
 };
 
@@ -271,6 +275,7 @@ type SearchResult = {
   locale: Locale;
   offset: number;
   query?: string;
+  sentToFlipp?: string;
   total: number;
   truncated: boolean;
 };
@@ -330,7 +335,7 @@ export class Client {
   static readonly locales = ['en', 'fr'] as const;
   private static readonly packPattern = /(?:(\d+)\s*[x\u00d7]\s*)?(\d+(?:[.,]\d+)?)\s*(kg|g|lbs?|(?<!fl\.?\s*)oz)\b/gi;
   private static readonly poundsPerKilogram = 2.20462;
-  private static readonly requestDelayMs = 400;
+  private static readonly requestDelayMs = 600;
   private static readonly requestTimeoutMs = 10000;
   private static readonly searchLimit = 200;
   private static readonly siteUrl = 'https://flipp.com';
@@ -704,6 +709,7 @@ export class Client {
           price,
           saleStory: item.sale_story?.trim() || undefined,
           section: item._L2?.trim() || undefined,
+          validFrom: item.valid_from ?? '',
           validTo: item.valid_to ?? ''
         };
       });
@@ -929,6 +935,8 @@ export class Client {
    *
    * Sends one request. Flyers are filtered by category when given, then by
    * merchant name when given, and cut to `limit` and to `maxChars` when given.
+   * When a category filter leaves no flyer, the result carries the category
+   * names Flipp has for the code, so the caller sees what to type.
    *
    * @param {ListOptions} options - Listing options
    * @param {AbortSignal} [signal] - Cancellation signal
@@ -971,15 +979,20 @@ export class Client {
       .sort((a, b) => a.merchant.localeCompare(b.merchant) || a.validFrom.localeCompare(b.validFrom) || a.id - b.id);
     const flyers = matches.slice(0, options.limit);
     this.trim(flyers, options.maxChars);
-    return {
+    const result: ListResult = {
       code: location.code,
       count: flyers.length,
       country: location.country,
       flyers,
       locale,
+      sentToFlipp: 'code',
       total: matches.length,
       truncated: flyers.length < matches.length
     };
+    if (categories.length > 0 && matches.length === 0) {
+      result.categories = [...new Set((data.flyers ?? []).flatMap((flyer) => flyer.categories ?? []))].sort((a, b) => a.localeCompare(b));
+    }
+    return result;
   }
 
   /**
@@ -1081,6 +1094,7 @@ export class Client {
       locale,
       offset: options.offset,
       query: options.query,
+      sentToFlipp: options.flyerId === undefined ? 'code and search words' : undefined,
       total: matches.length,
       truncated: options.offset + items.length < matches.length
     };

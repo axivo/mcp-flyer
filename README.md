@@ -39,11 +39,13 @@ Add to `mcp.json` servers configuration:
   "mcpServers": {
     "flyer": {
       "command": "npx",
-      "args": ["-y", "@axivo/mcp-flyer"]
+      "args": ["-y", "@axivo/mcp-flyer@latest"]
     }
   }
 }
 ```
+
+The `@latest` tag makes `npx` fetch the newest published version each time the server starts, without it `npx` keeps running the version it cached first. To pin a version, replace the tag, like `@axivo/mcp-flyer@1.0.0`. To run a local build, set `command` to `node` and `args` to the path of `dist/index.js`.
 
 There are no environment variables.
 
@@ -76,12 +78,12 @@ Call `status` first at session start to get the state of the flyer services and 
    - Required inputs:
      - `code` (string): Canadian postal code (e.g. `H3H 1A9`) or US ZIP code (e.g. `10001`)
    - Optional inputs:
-     - `category` (string): Flyer categories to keep, comma separated
+     - `category` (string): Flyer categories to keep, comma separated (e.g. `Groceries, Pharmacy`)
      - `limit` (number, default: 100): Maximum flyers returned
      - `locale` (string: `en` or `fr`, default: `en`): Language of flyer names and links
      - `maxChars` (number): Maximum characters of the returned flyers
      - `merchant` (string): Merchant names to keep
-   - Returns: `{ code, count, country, flyers, locale, total, truncated }`
+   - Returns: `{ categories, code, count, country, flyers, locale, sentToFlipp, total, truncated }`, `categories` lists the names Flipp has for the code and comes only when `category` matched no flyer, `sentToFlipp` says what the call sent
 
 2. `read`
    - Read an item on special in full
@@ -94,7 +96,7 @@ Call `status` first at session start to get the state of the flyer services and 
    - Returns: `{ brand, description, disclaimer, dollarsOff, flyerId, flyerLink, id, image, link, merchant, merchantId, name, originalPrice, percentOff, postText, preText, price, saleStory, unit, unitPrice, validFrom, validTo }`
 
 3. `search`
-   - Search the items on special in every flyer for a postal or ZIP code, or inside one flyer
+   - Search the items on special for a postal or ZIP code or inside one flyer, in the words stores print and the language of `locale`
    - Required inputs:
      - `code` (string): Canadian postal code or US ZIP code
    - Optional inputs (`query` or `flyerId` required):
@@ -107,7 +109,7 @@ Call `status` first at session start to get the state of the flyer services and 
      - `offset` (number, default: 0): Items to skip
      - `query` (string): Words to search (e.g. `chicken breast`, `electrical tape`)
      - `sort` (string: `price` or `unit`): Cheapest first by price or by unit price
-   - Returns: `{ code, count, country, items, locale, offset, query, total, truncated }`
+   - Returns: `{ code, count, country, items, locale, offset, query, sentToFlipp, total, truncated }`, `sentToFlipp` says what the call sent and is left out with a `flyerId`, which sends neither the code nor the words
 
 4. `status`
    - Get the flyer services status and the full tool surface with usage guidance

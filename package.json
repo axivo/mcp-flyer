@@ -1,6 +1,6 @@
 {
   "name": "@axivo/mcp-flyer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "MCP server for flyer deals and unit prices",
   "keywords": [

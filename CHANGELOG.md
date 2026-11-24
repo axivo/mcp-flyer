@@ -4,6 +4,29 @@ All notable changes to the Flyer MCP Server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-11-24
+
+### Added
+
+- Field `categories` on `list`, the names Flipp has for the code, when `category` matched no flyer
+- Field `sentToFlipp` on `list` and `search`, what the call sent, two first readers forgot to say it
+- Field `validFrom` on `search` items found by words, the start of the offer
+
+### Changed
+
+- Description of `list`, `read` and `search` pointing a new reader to `status`
+- Description of `search` saying it matches the words stores print, in the language of `locale`
+- Description of the `category` input of `list` with an example, `grocery` matched no flyer
+- Hint of `search` saying an empty result can mean the merchant uses other words
+- Hint of `search` saying the `locale` follows the language of the search words
+- Request pause raised from 400 to 600 milliseconds
+- Server configuration documented with `@axivo/mcp-flyer@latest`
+
+### Fixed
+
+- A closed output pipe ends the server with code 0, the handler said it continued
+- Parallel calls answered `429`, Flipp accepts about two requests a second
+
 ## [1.0.0] - 2026-11-22
 
 ### Added
